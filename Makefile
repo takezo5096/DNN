@@ -1,8 +1,8 @@
 CC=g++
 NVCC=nvcc
 CUDA_TOP=/usr/local/cuda
-INC=-I$(CUDA_TOP)/include
-LIB=-L$(CUDA_TOP)/lib64 -L./ -lcublas -lcudart -lm -lcumat -lcusparse -lboost_serialization -lmecab -lboost_system
+INC=-I$(CUDA_TOP)/include -I../cuMat
+LIB=-L$(CUDA_TOP)/lib64 -L../cuMat -lcublas -lcudart -lm -lcumat -lcusparse -lboost_serialization -lmecab -lboost_system
 #OTHER_OPTS=-std=c++11 -pthread -O2 -fpermissive
 OTHER_OPTS=-std=c++11 -pthread -O2
 

@@ -1,0 +1,159 @@
+#include <vector>
+#include <iostream>
+#include <chrono>
+
+
+#include "function.h"
+#include "variable.h"
+#include "model.h"
+#include "batchdata.h"
+#include "autoencoder.h"
+#include "optimizer_adam.h"
+#include "optimizer_sgd_moment.h"
+#include "word_embed.h"
+
+using namespace std;
+
+MallocCounter mallocCounter;
+
+
+void toPVariable(PVariable x1, float *X){
+    x1->data.memSetHost(X);
+}
+
+void readSentences(WordEmbed &we){
+
+    std::ifstream ifs("ptb.train.txt");
+        std::string str;
+        if (ifs.fail())
+        {
+            std::cerr << "open failed" << std::endl;
+        }
+        while (getline(ifs, str))
+        {
+            we.add(str, false);
+        }
+}
+
+Model model;
+
+PVariable forward_one_step(PVariable x, PVariable d, PVariable &s_h){
+    PVariable w_p = model.f("f_plus")->forward(model.f("w_xe")->forward(x), model.f("w_eh")->forward(s_h));
+    s_h = model.f("f_tanh")->forward(w_p);
+    PVariable s_y = model.f("w_hy")->forward(s_h);
+    PVariable loss = model.f("f_softmax_cross_entoropy")->forward(s_y, d);
+
+    return loss;
+}
+
+int main(){
+
+    cout << "create dataset" << endl;
+    WordEmbed we;
+    readSentences(we);
+
+    int batch_size = 20;
+    int epoch_size = 39;
+    //float dropout_p = 0.5;
+    int bprop_len = 10;
+    float learning_rate = 0.001;
+
+    int sample_size = we.getDataset().size();
+    int i_size = we.getVocabSize();
+    int n_size = 650;
+    int o_size = we.getVocabSize();
+
+    cout << "create model..." << endl;
+    Function *w_xe = new FunctionLinear(n_size, i_size);
+    Function *w_eh = new FunctionLinear(n_size, n_size);
+    Function *f_tanh = new FunctionTanh();
+    //Function *f_tanh = new FunctionReLU();
+    //Function *f_drop = new FunctionDropout(dropout_p);
+    Function *f_plus = new FunctionPlus();
+    Function *w_hy = new FunctionLinear(o_size, n_size);
+    Function *f_softmax_cross_entoropy = new FunctionSoftmaxCrossEntropy();
+    Function *f_loss_plus = new FunctionPlus();
+
+    model.putF("w_xe", w_xe);
+    model.putF("w_eh", w_eh);
+    model.putF("f_tanh", f_tanh);
+    model.putF("f_plus", f_plus);
+    model.putF("w_hy", w_hy);
+    model.putF("f_softmax_cross_entoropy", f_softmax_cross_entoropy);
+    model.putF("f_loss_plus", f_loss_plus);
+
+
+    //OptimizerAdam optimizer(&model, learning_rate);
+    OptimizerSGDMoment optimizer(&model, learning_rate, 0.7);
+    optimizer.init();
+
+    vector<int> dataset = we.getDataset();
+
+    std::chrono::system_clock::time_point  start, end;
+
+    cout << "epoch start" << endl;
+    for(int l=0; l<epoch_size; l++){
+
+        float cur_log_perp = 0;
+
+        PVariable loss_sum(new Variable(1, 1));
+        PVariable s_h(new Variable(n_size, batch_size));
+
+
+        start = std::chrono::system_clock::now();
+
+        for (int idx=0; idx<sample_size/batch_size-1; idx++){
+
+            BatchData bdata(we.getVocabSize(), we.getVocabSize(), batch_size);
+
+            we.toOneHots(bdata.X, idx*batch_size, idx*batch_size + batch_size);
+            we.toOneHots(bdata.D, idx*batch_size+1, idx*batch_size + batch_size+1);
+
+            PVariable x(new Variable(we.getVocabSize(), batch_size));
+            PVariable d(new Variable(we.getVocabSize(), batch_size));
+            toPVariable(x, bdata.X);
+            toPVariable(d, bdata.D);
+
+
+            PVariable loss =  forward_one_step(x, d, s_h);
+            /*
+            PVariable w_p = model.f("f_plus")->forward(model.f("w_xe")->forward(x), model.f("w_eh")->forward(s_h));
+            s_h = model.f("f_tanh")->forward(w_p);
+            PVariable s_y = model.f("w_hy")->forward(s_h);
+            PVariable loss = model.f("f_softmax_cross_entoropy")->forward(s_y, d);
+            //cout << "loss:" << loss->val() << endl;
+            */
+
+            cur_log_perp += loss->val();
+            loss_sum = f_loss_plus->forward(loss_sum, loss);
+
+
+            if ((idx+1) % bprop_len == 0){
+                loss_sum->backward();
+                //cout << "loss_sum:" << loss_sum->val() << endl;
+                optimizer.update();
+                loss_sum->zero_grads();
+                loss_sum->unchain();
+                loss_sum->zeros();
+            }
+            if ((idx+1) % 100 == 0){
+                end = std::chrono::system_clock::now();
+                int elapsed = std::chrono::duration_cast<std::chrono::seconds>(end-start).count();
+
+                cout << "epoch:" << (l+1) << " idx:" << (idx+1) << "/" << sample_size/batch_size
+                //<< " perplexity:" << std::exp(cur_log_perp/100) << " iters/sec:" << ((float)100)/((float)elapsed) << endl;
+                << " perplexity:" << cur_log_perp/100 << " iters/sec:" << ((float)100)/((float)elapsed) << endl;
+
+                start = std::chrono::system_clock::now();
+                cur_log_perp = 0;
+            }
+        } //for sample_size/batch_size end
+
+        optimizer.lr /= 1.2;
+        cout << "epoch:" << (l+1) << " change learning ratge:" << optimizer.lr << endl;
+
+    }//for epoch end
+
+
+}
+

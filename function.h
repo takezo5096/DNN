@@ -16,46 +16,50 @@ using namespace std;
 #include "variable.h"
 
 
-class FunctionParam {
-public:
-    vector<PVariable> inputs;
-    vector<PVariable> outputs;
-};
 
+extern map<Variable *, bool> obj_pool2;
+extern int count_function;
+extern int count_variable;
 
 class Function {
 public:
 
-    vector<FunctionParam *> paramsStack;
 
-    vector<int> paramsStackNums;
+    vector<PVariable> inputs;
+    vector<PVariable> outputs;
 
 
-    int id;
+    int id = -1;
     string name;
-
+    string custom_name;
+    int inner_count = 0;
 
     Function();
     virtual ~Function();
 
 
-    void createParams(vector<PVariable> &inputs, vector<Function *> &funcs);
-
     virtual PVariable forward(PVariable input);
     virtual PVariable forward(PVariable x, PVariable t);
+    virtual PVariable forward(PVariable input1, PVariable input2, PVariable input3);
+    virtual PVariable forward(PVariable input1, PVariable input2, PVariable input3, PVariable input4);
+    virtual PVariable forward(PVariable input1, PVariable input2, PVariable input3, PVariable input4,
+                              PVariable input5, PVariable input6, PVariable input7, PVariable input8,
+                              PVariable input9, PVariable input10, PVariable input11, PVariable input12
+    );
+
     virtual void backward(cuMat &p_grad);
 
     virtual PVariable forward(vector<PVariable> &inputs, vector<PVariable> &outputs);
     virtual void backward(cuMat &p_grad, vector<PVariable> &inputs, vector<PVariable> &outputs);
 
-    virtual bool popParamStack();
-    //virtual void clearParamStack(bool isPop);
 
     void init();
 
+    void clip_grad(Variable *v);
+
     virtual void reset_state();
 
-private:
+        private:
     friend class boost::serialization::access;
     template<class Archive> void serialize(Archive & ar, const unsigned int version) {
     }
@@ -102,21 +106,37 @@ private:
          void backward(cuMat &p_grad, vector<PVariable> &inputs, vector<PVariable> &outputs);
  };
 
+class FunctionSqrt : public Function {
+public:
+    FunctionSqrt() ;
+    PVariable forward(vector<PVariable> &inputs, vector<PVariable> &outputs);
+    void backward(cuMat &p_grad, vector<PVariable> &inputs, vector<PVariable> &outputs);
+};
+
+class FunctionInverse : public Function {
+public:
+    FunctionInverse() ;
+    PVariable forward(vector<PVariable> &inputs, vector<PVariable> &outputs);
+    void backward(cuMat &p_grad, vector<PVariable> &inputs, vector<PVariable> &outputs);
+};
+
 
 
 class FunctionLinear: public Function {
 
 public:
-    Variable w;
-    Variable b;
+    Variable *w;
+    Variable *b;
     cuMat i1;
 
     bool noBias = false;
 
     FunctionLinear();
-    FunctionLinear(Variable &w, Variable &b);
+    FunctionLinear(Variable *w, Variable *b);
+    FunctionLinear(Variable *w);
     FunctionLinear(int output_size, int input_size);
     FunctionLinear(int output_size, int input_size, bool no_bias);
+    //~FunctionLinear();
     PVariable forward(vector<PVariable> &inputs, vector<PVariable> &outputs);
     void backward(cuMat &p_grad, vector<PVariable> &inputs, vector<PVariable> &outputs);
     void toHostArray();
@@ -170,167 +190,7 @@ private:
 
 
 
-// Gated Recurrent Unit
-// http://arxiv.org/pdf/1406.1078v3.pdf
-class FunctionGRU: public Function {
-public:
 
-    //PVariable e1;
-    PVariable s_h;
-    int input_size=0;
-    int output_size=0;
-
-    Function *f_sigmoid_r;
-    Function *f_plus_r;
-    Function *wr_x;
-    Function *ur_h;
-
-    Function *f_sigmoid_z;
-    Function *f_plus_z;
-    Function *wz_x;
-    Function *uz_h;
-
-    Function *f_mul_h;
-    Function *f_tanh;
-    Function *f_plus_h;
-
-    Function *w_x;
-    Function *u_h;
-
-    Function *f_plus;
-    Function *f_mul1;
-    Function *f_mul2;
-    Function *f_minus;
-
-
-
-
-    FunctionGRU();
-    FunctionGRU(int output_size, int input_size);
-    ~FunctionGRU();
-    PVariable forward(vector<PVariable> &inputs, vector<PVariable> &outputs);
-    void backward(cuMat &p_grad, vector<PVariable> &inputs, vector<PVariable> &outputs);
-    void reset_state();
-private:
-    friend class boost::serialization::access;
-    template<class Archive> void serialize(Archive & ar, const unsigned int version) {
-
-        ar & boost::serialization::base_object<Function>(*this);
-        ar & input_size;
-        ar & output_size;
-
-        ar & f_sigmoid_r;
-        ar & f_plus_r;
-        ar & wr_x;
-        ar & ur_h;
-
-        ar & f_sigmoid_z;
-        ar & f_plus_z;
-        ar & wz_x;
-        ar & uz_h;
-
-        ar & f_mul_h;
-        ar & f_tanh;
-        ar & f_plus_h;
-
-        ar & w_x;
-        ar & u_h;
-
-        ar & f_plus;
-        ar & f_mul1;
-        ar & f_mul2;
-        ar & f_minus;
-    }
-
-};
-
-// Long Short Term Memory
-// http://www.jmlr.org/papers/volume3/gers02a/gers02a.pdf
-class FunctionLSTM: public Function {
-public:
-    int input_size=0;
-    int output_size=0;
-
-    PVariable s_h;
-    PVariable c_h;
-
-    Function *x_i;
-    Function *w_i;
-    Function *c_i;
-    Function *f_plus_i;
-    Function *f_plus_i2;
-    Function *f_sig_i;
-
-    Function *x_f;
-    Function *w_f;
-    Function *c_f;
-    Function *f_plus_f;
-    Function *f_plus_f2;
-    Function *f_sig_f;
-
-    Function *x_o;
-    Function *w_o;
-    Function *c_o;
-    Function *f_plus_o;
-    Function *f_plus_o2;
-    Function *f_sig_o;
-
-    Function *x_g;
-    Function *w_g;
-    Function *f_plus_g;
-    Function *f_tan_g;
-
-    Function *f_mul1_c;
-    Function *f_mul2_c;
-    Function *f_plus_c;
-
-    Function *f_mul_s;
-    Function *f_tan_s;
-
-
-
-
-    FunctionLSTM();
-    ~FunctionLSTM();
-    FunctionLSTM(int output_size, int input_size);
-    PVariable forward(vector<PVariable> &inputs, vector<PVariable> &outputs);
-    void backward(cuMat &p_grad, vector<PVariable> &inputs, vector<PVariable> &outputs);
-    void reset_state();
-private:
-    friend class boost::serialization::access;
-    template<class Archive> void serialize(Archive & ar, const unsigned int version) {
-
-        ar & boost::serialization::base_object<Function>(*this);
-        ar & x_i;
-        ar & w_i;
-        ar & f_plus_i;
-        ar & f_sig_i;
-
-        ar & x_f;
-        ar & w_f;
-        ar & f_plus_f;
-        ar & f_sig_f;
-
-        ar & x_o;
-        ar & w_o;
-        ar & f_plus_o;
-        ar & f_sig_o;
-
-        ar & x_g;
-        ar & w_g;
-        ar & f_plus_g;
-        ar & f_tan_g;
-
-        ar & f_mul1_c;
-        ar & f_mul2_c;
-        ar & f_plus_c;
-
-        ar & f_mul_s;
-        ar & f_tan_s;
-
-    }
-
-};
 
 
 
@@ -396,6 +256,137 @@ public:
     PVariable forward(vector<PVariable> &inputs, vector<PVariable> &outputs);
     void backward(cuMat &p_grad, vector<PVariable> &inputs, vector<PVariable> &outputs);
 };
+
+
+class FunctionIdentity: public Function {
+public:
+    FunctionIdentity();
+    PVariable forward(vector<PVariable> &inputs, vector<PVariable> &outputs);
+    void backward(cuMat &p_grad, vector<PVariable> &inputs, vector<PVariable> &outputs);
+};
+
+
+
+class FunctionLSTM: public Function {
+public:
+
+    cuMat i, f, g, o;
+
+    FunctionLSTM();
+    PVariable forward(vector<PVariable> &inputs, vector<PVariable> &outputs);
+
+    void backward(cuMat &gh, vector<PVariable> &inputs, vector<PVariable> &outputs);
+
+    void splitMat(int offset, cuMat &target, cuMat &i, cuMat &f, cuMat &g, cuMat &o);
+    void jonMat(int offset, cuMat &target, cuMat &i, cuMat &f, cuMat &g, cuMat &o);
+
+};
+
+class FunctionFullLSTM: public Function {
+public:
+
+    Variable *f_c_w,  *f_h_w,  *f_x_w,  *f_x_b,
+    *i_c_w,  *i_h_w,  *i_x_w,  *i_x_b,
+    *o_c_w,  *o_h_w,  *o_x_w,  *o_x_b,
+    *g_h_w,  *g_x_w,  *g_x_b;
+
+    cuMat f, i, g, o;
+    cuMat f_hat, i_hat, g_hat, o_hat;
+
+    FunctionFullLSTM(Variable *f_c_w, Variable *f_h_w, Variable *f_x_w, Variable *f_x_b,
+            Variable *i_c_w, Variable *i_h_w, Variable *i_x_w, Variable *i_x_b,
+            Variable *o_c_w, Variable *o_h_w, Variable *o_x_w, Variable *o_x_b,
+            Variable *g_h_w, Variable *g_x_w, Variable *g_x_b);
+
+
+    PVariable forward(vector<PVariable> &inputs, vector<PVariable> &outputs);
+
+    void backward(cuMat &gh, vector<PVariable> &inputs, vector<PVariable> &outputs);
+
+};
+
+
+class FunctionGRU: public Function {
+public:
+
+    Variable *w_r, *u_r, *b_r,
+            *w_z, *u_z, *b_z,
+            *w_g, *u_g, *b_g;
+
+    cuMat r, z, g;
+    cuMat r_hat, z_hat, g_hat;
+
+    FunctionGRU(Variable *w_r, Variable *u_r, Variable *b_r, Variable *w_z, Variable *u_z, Variable *b_z, Variable *w_g, Variable *u_g, Variable *b_g);
+
+    PVariable forward(vector<PVariable> &inputs, vector<PVariable> &outputs);
+
+    void backward(cuMat &gh, vector<PVariable> &inputs, vector<PVariable> &outputs);
+
+};
+
+
+class FunctionBatchNorm: public Function {
+
+public:
+    Variable *gamma, *beta;
+
+    cuMat xhat, rmu, xmu, ivar, sqrtvar, var;
+
+    bool is_train = true;
+    Variable *x_mean, *x_var;
+
+public:
+    FunctionBatchNorm(Variable *gamma, Variable *beta, Variable *x_mean, Variable *x_var);
+
+    PVariable forward(vector<PVariable> &inputs, vector<PVariable> &outputs);
+
+    void backward(cuMat &gh, vector<PVariable> &inputs, vector<PVariable> &outputs);
+
+};
+
+class FunctionConv2D: public Function {
+
+public:
+    Variable *w, *b;
+
+    int batch_num, channel_num, w_size, h_size, filter_size, filter_num;
+
+    int outputDim_w, outputDim_h;
+
+    vector<cuMat> cols;
+
+public:
+    FunctionConv2D(Variable *w, Variable *b, int batch_num, int channel_num, int w_size, int h_size, int filter_size, int filter_num);
+
+    //~FunctionConv2D();
+
+    PVariable forward(vector<PVariable> &inputs, vector<PVariable> &outputs);
+
+    void backward(cuMat &gh, vector<PVariable> &inputs, vector<PVariable> &outputs);
+
+
+    cuMat forward_one(cuMat &data);
+    cuMat backward_one(cuMat &data, cuMat &p_grad);
+};
+
+
+class FunctionPooling: public Function {
+
+public:
+
+    int width, height, depth, windowWidth, windowHeight;
+
+    FunctionPooling(int width, int height, int depth, int windowWidth, int windowHeight);
+
+    PVariable forward(vector<PVariable> &inputs, vector<PVariable> &outputs);
+
+    void backward(cuMat &gh, vector<PVariable> &inputs, vector<PVariable> &outputs);
+
+};
+
+
+
+using PFunction = shared_ptr<Function>;
 
 #endif
 

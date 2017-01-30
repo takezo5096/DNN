@@ -1432,9 +1432,17 @@ cuMat FunctionConv2D::forward_one(cuMat &data){
     cols.push_back(stacked);
 
 
+    /* w defination
+     w = new Variable(filter_num, filter_size * filter_size * channel_num);
+     stacked defination
+     cuMat stacked(filter_size_w*filter_size_h * channel_num, outputDimW * outputDimH);
+
+    */
 
     //cuMat r = stacked.dot(w->data);
-    cuMat r = w->data.dot(stacked.transpose());
+    //cuMat r = w->data.dot(stacked.transpose());
+    cuMat r = w->data.dot(stacked);
+
     //cout << "r" << endl;
     //cout << r;
     //cout << "b->data" << endl;
@@ -1446,6 +1454,11 @@ cuMat FunctionConv2D::forward_one(cuMat &data){
     r += b->data.dot(ones);
     //exit(1);
 
+    r = r.transpose();
+    //cout << "r" << endl;
+    //cout << r;
+
+
     cuMat r_array(r.rows * r.cols, 1);
     r_array.memSetDevice(r.mDevice);
 
@@ -1455,6 +1468,16 @@ cuMat FunctionConv2D::forward_one(cuMat &data){
 }
 
 cuMat FunctionConv2D::backward_one(cuMat &col, cuMat &p_grad) {
+
+    /*
+     w->data.transpose_dot_plus(p_grad, x->grad);
+
+     p_grad.dot_transpose_plus(x->data, w->grad);
+
+     p_grad.dot_transpose_plus(i1, b->grad);
+     */
+
+
 
     //w->data.transpose_dot_plus(p_grad, x->grad);
     //p_grad.dot_transpose_plus(x->data, w->grad);
@@ -1477,18 +1500,22 @@ cuMat FunctionConv2D::backward_one(cuMat &col, cuMat &p_grad) {
     //cout << "col" << endl;
     //cout << col;
 
+    p_grad = p_grad.transpose();
 
-    cuMat p_grad_mat(outputDim_w * outputDim_h, filter_num);
+
+    cuMat p_grad_mat(filter_num, outputDim_w * outputDim_h);
 
     p_grad_mat.memSetDevice(p_grad.mDevice);
     //cout << "p_grad_mat" << endl;
     //cout << p_grad_mat;
-    w->grad += p_grad_mat.transpose().dot(col);
+    //exit(1);
+    w->grad += p_grad_mat.dot(col.transpose());
+
     //cout << "w->grad" << endl;
     //cout << w->grad;
     //exit(1);
 
-    cuMat ones(p_grad_mat.rows, 1);
+    cuMat ones(p_grad_mat.cols, 1);
     ones.ones();
     //cout << "p_grad_mat" << endl;
     //cout << p_grad_mat;
@@ -1496,18 +1523,20 @@ cuMat FunctionConv2D::backward_one(cuMat &col, cuMat &p_grad) {
     //cout << ones;
     //cout << "b->grad" << endl;
     //cout << b->grad;
-    b->grad += p_grad_mat.transpose().dot(ones);
+    b->grad += p_grad_mat.dot(ones);
+    //cout << b->grad;
     //exit(1);
 
     //cuMat dcol = p_grad_mat.dot(w->data.transpose());
     //cuMat dcol = w->data.transpose().dot(p_grad_mat.transpose());
-    cuMat dcol = p_grad_mat.dot(w->data);
+    //cuMat dcol = p_grad_mat.transpose().dot(w->data);
+    cuMat dcol = w->data.transpose().dot(p_grad_mat);
+    //exit(1);
 
     //cout << "dcol" << endl;
     //cout << dcol;
     //exit(1);
     cuMat dx = dcol.col2im(w_size, h_size, channel_num, filter_size, filter_size, 1, 1, 2, 2, 2, 2);
-
     //cout << "dx" << endl;
     //cout << dx << endl;
     //exit(1);
@@ -1606,6 +1635,7 @@ FunctionPooling::FunctionPooling(int width, int height, int depth, int windowWid
     this->windowHeight = windowHeight;
 }
 
+/*
 PVariable FunctionPooling::forward(vector<PVariable> &inputs, vector<PVariable> &outputs){
     PVariable x = inputs[0];
 
@@ -1615,10 +1645,10 @@ PVariable FunctionPooling::forward(vector<PVariable> &inputs, vector<PVariable> 
     int batch_num = x->data.cols;
 
 
-    /*
-         * according to the cuDNN Library reference, get pooling size as followed:
-         * outputDim = 1 + (inputDim + 2*padding - windowDim)/poolingStride;
-         */
+
+         //* according to the cuDNN Library reference, get pooling size as followed:
+         //* outputDim = 1 + (inputDim + 2*padding - windowDim)/poolingStride;
+
     int pooled_w = 1 + (width + (pad+pad) - windowWidth)/stride;
     int pooled_h = 1 + (height + (pad+pad) - windowHeight)/stride;
 
@@ -1675,5 +1705,61 @@ void FunctionPooling::backward(cuMat &p_grad, vector<PVariable> &inputs, vector<
         dxr.memSetDeviceCol(dx.mDevice, i);
 
     }
+    x->grad += dxr;
+}
+*/
+
+
+PVariable FunctionPooling::forward(vector<PVariable> &inputs, vector<PVariable> &outputs){
+    PVariable x = inputs[0];
+
+    int stride = 2;
+    int pad = 0;
+
+    int batch_num = x->data.cols;
+
+
+    //* according to the cuDNN Library reference, get pooling size as followed:
+    //* outputDim = 1 + (inputDim + 2*padding - windowDim)/poolingStride;
+
+    int pooled_w = 1 + (width + (pad+pad) - windowWidth)/stride;
+    int pooled_h = 1 + (height + (pad+pad) - windowHeight)/stride;
+
+    //cout << "pooled_w:" << pooled_w << endl;
+
+    PVariable r = PVariable(obj_construct(this, depth * pooled_w * pooled_h, batch_num), obj_destroy);
+
+    cuMat pooled = x->data.pooling(batch_num, width, height, depth, windowWidth, windowHeight, stride, stride, pad, pad, pad, pad);
+
+    r->data = pooled;
+
+    //cout << "r->data" << endl;
+    //cout << r->data;
+
+    //cout << "pooled" << endl;
+    //cout << pooled;
+
+    //cout << "FunctionPooling::forward end =================" << endl;
+
+    return r;
+}
+
+void FunctionPooling::backward(cuMat &p_grad, vector<PVariable> &inputs, vector<PVariable> &outputs){
+
+    PVariable x = inputs[0];
+
+
+    int stride = 2;
+    int pad = 0;
+
+    int batch_num = x->data.cols;
+
+    int pooled_w = 1 + (width + (pad+pad) - windowWidth)/stride;
+    int pooled_h = 1 + (height + (pad+pad) - windowHeight)/stride;
+
+    //cuMat dxr(depth * width * height, batch_num);
+
+    cuMat dxr = x->data.pooling_backward(batch_num, p_grad.mDevice, width, height, depth, windowWidth, windowHeight, stride, stride, pad, pad, pad, pad);
+
     x->grad += dxr;
 }

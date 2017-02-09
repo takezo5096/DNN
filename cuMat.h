@@ -13,6 +13,7 @@
 #include <cmath>
 #include <random>
 //#include <chrono>
+#include <sstream>
 
 #include <boost/serialization/export.hpp>
 #include <boost/serialization/serialization.hpp>
@@ -25,8 +26,11 @@
 #include "matmod_kernel.h"
 #include "mat_log_kernel.h"
 #include "mat_sqrt_kernel.h"
+#include "mat_sqrt_d_kernel.h"
 #include "relu_kernel.h"
 #include "relu_d_kernel.h"
+#include "prelu_kernel.h"
+#include "prelu_d_kernel.h"
 #include "sigmoid_kernel.h"
 #include "sigmoid_d_kernel.h"
 #include "tanh_kernel.h"
@@ -43,11 +47,58 @@
 #include "mat_cos_kernel.h"
 #include "softmax_cross_entropy_kernel.h"
 #include "mat_l2_kernel.h"
+#include "element_wise_clip_kernel.h"
+#include "mat_exp_kernel.h"
+#include "mat_dot_product_kernel.h"
+#include "mat_vec_mul_kernel.h"
+#include "mat_inverse_kernel.h"
+#include "mat_inverse_d_kernel.h"
+#include "batch_sum_kernel.h"
+#include "vec_to_mat_kernel.h"
 
+#include "im2col.h"
+#include "pooling.h"
 
 using namespace std;
 
 #define IDX2F(i,j,ld) ((((j))*(ld))+((i)))
+
+
+
+#define FatalError(s) {                                                \
+    std::stringstream _where, _message;                                \
+    _where << __FILE__ << ':' << __LINE__;                             \
+    _message << std::string(s) + "\n" << __FILE__ << ':' << __LINE__;\
+    std::cerr << _message.str() << "\nAborting...\n";                  \
+    cudaDeviceReset();                                                 \
+    exit(EXIT_FAILURE);                                                \
+}
+
+#define checkCUDNN(status) {                                           \
+    std::stringstream _error;                                          \
+    if (status != CUDNN_STATUS_SUCCESS) {                              \
+      _error << "CUDNN failure\nError: " << cudnnGetErrorString(status); \
+      FatalError(_error.str());                                        \
+            }                                                                  \
+}
+
+#define checkCudaErrors(status) {                                      \
+    std::stringstream _error;                                          \
+    if (status != 0) {                                                 \
+      _error << "Cuda failure\nError: " << cudaGetErrorString(status); \
+      FatalError(_error.str());                                        \
+            }                                                                  \
+}
+
+#define checkCublasErrors(status) {                                    \
+    std::stringstream _error;                                          \
+    if (status != 0) {                                                 \
+      _error << "Cublas failure\nError code " << status;        \
+      FatalError(_error.str());                                        \
+            }                                                                  \
+}
+
+
 
 class MallocCounter {
 public:
@@ -89,7 +140,8 @@ public:
 
 
     cuMat() {
-
+        rows = 0;
+        cols = 0;
         cublasCreate(&cudaHandle);
         cudaThreadSynchronize();
     }
@@ -177,10 +229,12 @@ public:
             cudaFree(mDevice);
             mDevice = NULL;
             mallocCounter.down();
+            //cout << "cuMat del_matrix 1" << endl;
         }
         if (mHost != NULL){
             free(mHost);
             mHost = NULL;
+            //cout << "cuMat del_matrix 2" << endl;
         }
         cudaThreadSynchronize();
     }
@@ -191,6 +245,7 @@ public:
         if (error != cudaSuccess) printf("cudaMemcpy error\n");
     }
     void memDeviceToHost() {
+        if (mHost == NULL) this->memMallocHost();
         cudaError_t error = cudaMemcpy(mHost, mDevice,
                 rows * cols * sizeof(*mDevice), cudaMemcpyDeviceToHost);
         if (error != cudaSuccess)
@@ -199,6 +254,7 @@ public:
     void memSetHost(int i, int j, float val) {
         if (mHost == NULL)
             this->memMallocHost();
+
         mHost[IDX2F(i, j, rows)] = val;
     }
     void memSetHost(float *v) {
@@ -207,6 +263,25 @@ public:
         if (error != cudaSuccess)
             printf("cudaMemcpy error\n");
     }
+    void memSetDevice(float *v) {
+        cudaError_t error = cudaMemcpy(mDevice, v,
+                                       rows * cols * sizeof(*mDevice), cudaMemcpyDeviceToDevice);
+        if (error != cudaSuccess)
+            printf("cudaMemcpy error\n");
+    }
+    void memSetDeviceRow(float *v, int row_index) {
+        cudaError_t error = cudaMemcpy(mDevice + row_index * rows, v,
+                                       cols * sizeof(float), cudaMemcpyDeviceToDevice);
+        if (error != cudaSuccess)
+            printf("cudaMemcpy error\n");
+    }
+    void memSetDeviceCol(float *v, int col_index) {
+        cudaError_t error = cudaMemcpy(mDevice + col_index * rows, v,
+                                       rows * sizeof(float), cudaMemcpyDeviceToDevice);
+        if (error != cudaSuccess)
+            printf("cudaMemcpy error\n");
+    }
+
 
     void toHostArray(){
         //cout << "toHostArray" << endl;
@@ -235,6 +310,35 @@ public:
     }
 
 
+    cuMat sliceRows(int offset, int len){
+        this->memDeviceToHost();
+
+        cuMat r(len, this->cols);
+        r.memDeviceToHost();
+        int n_i = 0;
+        for (int i = offset; i < offset+len; i++) {
+            for (int j = 0; j < cols; j++){
+                r.mHost[IDX2F(n_i, j, len)] = mHost[IDX2F(i, j, rows)];
+            }
+            n_i++;
+        }
+        r.memHostToDevice();
+        return r;
+    }
+    void joinRows(cuMat &a, int offset, int len){
+        this->memDeviceToHost();
+        a.memDeviceToHost();
+        int n_i = 0;
+        for (int i = offset; i < offset+len; i++) {
+            for (int j = 0; j < cols; j++){
+                mHost[IDX2F(i, j, rows)] = a.mHost[IDX2F(n_i, j, len)];
+            }
+            n_i++;
+        }
+        memHostToDevice();
+    }
+
+
     cuMat &operator=(const cuMat &a) {
         //cout << "cuMat operator=" << endl;
         new_matrix(a.rows, a.cols);
@@ -259,7 +363,7 @@ public:
 
     friend void printRows(ostream &output, cuMat &a, int i){
         output << "[";
-        if (a.cols < 6){
+        if (a.cols < 11){
             for (int j = 0; j < a.cols; j++)  output << a.mHost[IDX2F(i, j, a.rows)] << " ";
         }
         else{
@@ -517,8 +621,9 @@ public:
         cublasStatus_t stat = cublasSgemm(cudaHandle, CUBLAS_OP_N, CUBLAS_OP_N,
                 rows, b.cols, cols, &alpha, mDevice, rows, b.mDevice, b.rows,
                 &beta, r.mDevice, r.rows);
+        checkCublasErrors(stat);
         if (stat != CUBLAS_STATUS_SUCCESS)
-            cout << "cannot cublasSgemm" << endl;
+            cout << "cannot cublasSgemm dot" << endl;
         cudaThreadSynchronize();
     }
     void dot_plus(const cuMat &b, cuMat &r) {
@@ -532,8 +637,9 @@ public:
                         &alpha, mDevice, rows,
                         b.mDevice, b.rows,
                         &beta, r.mDevice, r.rows);
+        checkCublasErrors(stat);
                 if (stat != CUBLAS_STATUS_SUCCESS)
-                    cout << "cannot cublasSgemm" << endl;
+                    cout << "cannot cublasSgemm dot_plus" << endl;
                 cudaThreadSynchronize();
         }
 
@@ -548,8 +654,9 @@ public:
                     &alpha, mDevice, rows,
                     b.mDevice, b.rows,
                     &beta, r.mDevice, r.rows);
+        checkCublasErrors(stat);
             if (stat != CUBLAS_STATUS_SUCCESS)
-                cout << "cannot cublasSgemm" << endl;
+                cout << "cannot cublasSgemm transpose_dot_plus" << endl;
             cudaThreadSynchronize();
     }
     void dot_transpose_plus(const cuMat &b, cuMat &r) {
@@ -563,8 +670,9 @@ public:
                     &alpha, mDevice, rows,
                     b.mDevice, b.rows,
                     &beta, r.mDevice, r.rows);
+        checkCublasErrors(stat);
             if (stat != CUBLAS_STATUS_SUCCESS)
-                cout << "cannot cublasSgemm" << endl;
+                cout << "cannot cublasSgemm dot_transpose_plus" << endl;
             cudaThreadSynchronize();
     }
 
@@ -618,12 +726,22 @@ public:
 
     cuMat sqrt() {
         cuMat r(rows, cols);
-        sqrt(r, 0.0);
+        sqrt(r, 1e-8);
         return r;
     }
     void sqrt(cuMat &r, float alpha) {
 
         mat_sqrt_kernel_exec(mDevice, r.mDevice, cols, rows, alpha);
+    }
+
+    cuMat sqrt_d() {
+        cuMat r(rows, cols);
+        sqrt_d(r, 1e-8);
+        return r;
+    }
+    void sqrt_d(cuMat &r, float alpha) {
+
+        mat_sqrt_d_kernel_exec(mDevice, r.mDevice, cols, rows, alpha);
     }
 
     cuMat sin(){
@@ -662,6 +780,30 @@ public:
 
         relu_d_kernel_exec(mDevice, r.mDevice, cols, rows);
     }
+
+    //
+    cuMat prelu(cuMat &a) {
+        cuMat r(rows, cols);
+        prelu(a, r);
+        return r;
+    }
+    void prelu(cuMat &a, cuMat &r) {
+
+        prelu_kernel_exec(mDevice, a.mDevice, r.mDevice, cols, rows);
+    }
+
+    cuMat prelu_d(cuMat &a, cuMat &da) {
+        cuMat r(rows, cols);
+        prelu_d(a, r, da);
+        return r;
+    }
+    void prelu_d(cuMat &a, cuMat &r, cuMat &da) {
+
+        prelu_d_kernel_exec(mDevice, a.mDevice, r.mDevice, da.mDevice, cols, rows);
+    }
+
+    //
+
 
 
     cuMat sigmoid() {
@@ -747,6 +889,7 @@ public:
                     cudaMemcpyDeviceToHost);
             if (error != cudaSuccess)
                 printf("cudaMemcpy error\n");
+            cudaFree(sum_d);
             return std::sqrt(sum_h);
         }
 
@@ -794,6 +937,201 @@ public:
         this->ones();
         this->mul(a, *this);
     }
+
+    void element_wise_clip(cuMat &r, float threshold){
+        element_wise_clip_kernel_exec(mDevice, r.mDevice, cols, rows, threshold);
+    }
+
+    cuMat exp(){
+        cuMat r(rows, cols);
+        exp(r);
+        return r;
+    }
+    void exp(cuMat &r){
+        mat_exp_kernel_exec(mDevice, r.mDevice, cols, rows, 1e-8);
+    }
+
+    cuMat dot_product(cuMat &b) {
+        cuMat r(1, cols);
+        dot_product(b, r);
+        return r;
+    }
+    void dot_product(cuMat &b, cuMat &r){
+        mat_dot_product_kernel_exec(mDevice, b.mDevice, r.mDevice, cols, rows);
+    }
+
+    cuMat mat_vec_mul(cuMat &b, int axis) {
+        cuMat r(rows, cols);
+        mat_vec_mul(b, r, axis);
+        return r;
+    }
+    void mat_vec_mul(cuMat &b, cuMat &r, int axis){
+        mat_vec_mul_kernel_exec(mDevice, b.mDevice, r.mDevice, cols, rows, axis);
+    }
+
+
+    cuMat inverse() {
+        cuMat r(rows, cols);
+        inverse(r);
+        return r;
+    }
+    void inverse(cuMat &r) {
+
+        mat_inverse_kernel_exec(mDevice, r.mDevice, cols, rows);
+    }
+
+    cuMat inverse_d() {
+        cuMat r(rows, cols);
+        inverse_d(r);
+        return r;
+    }
+    void inverse_d(cuMat &r) {
+
+        mat_inverse_d_kernel_exec(mDevice, r.mDevice, cols, rows);
+    }
+
+
+    cuMat batch_sum(){
+        cuMat r(rows, 1);
+        batch_sum(r);
+        return r;
+    }
+
+    void batch_sum(cuMat &r){
+        batch_sum_kernel_exec(mDevice, r.mDevice, cols, rows);
+    }
+
+
+    cuMat vec_to_mat(int s_cols){
+        cuMat r(rows, s_cols);
+        vec_to_mat(r);
+
+        return r;
+    }
+
+    void vec_to_mat(cuMat &r){
+        vec_to_mat_kernel_exec(mDevice, r.mDevice, r.cols, r.rows);
+    }
+
+    cuMat im2col(int w_size, int h_size, int channel_num, int filter_size_w, int filter_size_h,
+        int stride_x, int stride_y, int pad_left, int pad_right, int pad_top, int pad_bottom, int &outputDimW, int &outputDimH){
+
+        /**
+        * Each dimension h and w of the output images is computed as followed:
+        * outputDim = 1 + (inputDim + 2*pad - filterDim)/convolutionStride
+        */
+        outputDimW = 1 + (w_size + (pad_left+pad_right) - filter_size_w)/1;
+        outputDimH = 1 + (h_size + (pad_top+pad_bottom) - filter_size_h)/1;
+
+        cuMat stacked(outputDimW * outputDimH, filter_size_w*filter_size_h * channel_num);
+        //cuMat stacked(filter_size_w*filter_size_h * channel_num, outputDimW * outputDimH);
+
+        /*
+        im2col_gpu(
+                stacked.mDevice,
+                mDevice,
+                w_size, //size_t width,
+                h_size, //size_t height,
+                channel_num, //size_t depth,
+                filter_size_w, //size_t windowWidth,
+                filter_size_h, //size_t windowHeight,
+                stride_x, //strideX,
+                stride_y, //size_t strideY,
+                pad_left, //size_t padLeft,
+                pad_right, //size_t padRight,
+                pad_top, //size_t padTop,
+                pad_bottom //size_t padBottom
+        );
+         */
+        im2col_ongpu(mDevice,
+                     channel_num, w_size, w_size,
+                     filter_size_w, stride_x, pad_left, stacked.mDevice);
+
+        return stacked;
+    }
+
+    cuMat col2im(int w_size, int h_size, int channel_num, int filter_size_w, int filter_size_h,
+                 int stride_x, int stride_y, int pad_left, int pad_right, int pad_top, int pad_bottom){
+
+        cuMat dest(channel_num * w_size * h_size, 1);
+
+        /*
+        col2im_gpu(dest.mDevice,
+                   mDevice,
+                   w_size,
+                   h_size,
+                   channel_num,
+                   filter_size_w,
+                   filter_size_h,
+                   stride_x,
+                   stride_y,
+                   pad_left, //size_t padLeft,
+                   pad_right, //size_t padRight,
+                   pad_top, //size_t padTop,
+                   pad_bottom //size_t padBottom
+        );
+         */
+
+        col2im_ongpu(mDevice,
+                     channel_num, w_size, w_size,
+                     filter_size_w, stride_x, pad_left, dest.mDevice);
+        return dest;
+    }
+
+
+    cuMat pooling(int batch_size, int width, int height, int depth, int windowWidth, int windowHeight,
+                  int strideX, int strideY, int padLeft, int padRight, int padTop, int padBottom){
+
+        /*
+         * according to the cuDNN Library reference, get pooling size as followed:
+         * outputDim = 1 + (inputDim + 2*padding - windowDim)/poolingStride;
+         */
+        int pooled_w = 1 + (width + (padLeft+padRight) - windowWidth)/strideX;
+        int pooled_h = 1 + (height + (padTop+padBottom) - windowHeight)/strideY;
+
+        cuMat pooled(pooled_w * pooled_h * depth, batch_size);
+
+        pooling_gpu(pooled.mDevice,
+                         mDevice,
+                    NN_POOL_MAX,
+                    width,
+                    height,
+                    depth * batch_size,
+                    windowWidth,
+                    windowHeight,
+                    strideX,
+                    strideY,
+                    padLeft,
+                    padRight,
+                    padTop,
+                    padBottom);
+        return pooled;
+    }
+
+    cuMat pooling_backward(int batch_size, float *dzdy, int width, int height, int depth, int windowWidth, int windowHeight,
+                           int strideX, int strideY, int padLeft, int padRight, int padTop, int padBottom){
+
+        cuMat dzdx(width * height * depth, batch_size);
+
+        poolingBackward_gpu(dzdx.mDevice,
+                            mDevice,
+                dzdy,
+                            NN_POOL_MAX,
+                width,
+                height,
+                depth * batch_size,
+                windowWidth,
+                windowHeight,
+                strideX,
+                strideY,
+                padLeft,
+                padRight,
+                padTop,
+                padBottom);
+
+        return dzdx;
+    }
+
 };
 
 #endif /* CUMAT_H_ */

@@ -201,6 +201,19 @@ public:
     PVariable forward(vector<PVariable> &inputs, vector<PVariable> &outputs);
     void backward(cuMat &p_grad, vector<PVariable> &inputs, vector<PVariable> &outputs);
 };
+
+class FunctionPReLU: public Function {
+public:
+    Variable *a;
+    PVariable xd = NULL;
+    PVariable ad = NULL;
+    FunctionPReLU();
+    FunctionPReLU(Variable *);
+    PVariable forward(vector<PVariable> &inputs, vector<PVariable> &outputs);
+    void backward(cuMat &p_grad, vector<PVariable> &inputs, vector<PVariable> &outputs);
+};
+
+
 class FunctionSigmoid: public Function {
 public:
     PVariable rr = NULL;

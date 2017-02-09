@@ -109,7 +109,7 @@ int main(){
     int i_size = 784;
     int n_size = 1024;
     int o_size = 10;
-    float learning_rate = 0.001;
+    float learning_rate = 0.0001;
     float ae_learning_rate = 0.001;
     float dropout_p = 0.5;
     float ae_dropout_p = 0.5;

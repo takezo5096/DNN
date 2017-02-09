@@ -25,6 +25,7 @@ public:
 
 
     OptimizerAdamParams(int output_units, int input_units) {
+        //init(output_units, input_units);
         adam_w_m = cuMat(output_units, input_units);
         adam_w_v = cuMat(output_units, input_units);
         m_h_t = cuMat(output_units, input_units);
@@ -34,6 +35,18 @@ public:
 
         ndw = cuMat(output_units, input_units);
     }
+
+    /*
+    void init(int output_units, int input_units){
+        adam_w_m = cuMat(output_units, input_units);
+        adam_w_v = cuMat(output_units, input_units);
+        m_h_t = cuMat(output_units, input_units);
+        v_h_t = cuMat(output_units, input_units);
+
+        dw_tmp = cuMat(output_units, input_units);
+
+        ndw = cuMat(output_units, input_units);
+    }*/
 };
 
 class OptimizerAdam: public Optimizer {
@@ -42,11 +55,15 @@ public:
     float beta1 = 0.9;
     float beta2 = 0.999;
 
-
     OptimizerAdam(Model *model, float lr) : Optimizer(model, lr) {
     }
+    OptimizerAdam(Model *model, float lr, float clip_grad_threshold) : Optimizer(model, lr, clip_grad_threshold) {
+    }
+
 
     OptimizerParams *createOptimizerParams(Variable *v){
+        //if (v != NULL) return new OptimizerAdamParams(v->data.rows, v->data.cols);
+        //else return new OptimizerAdamParams(0, 0);
         return new OptimizerAdamParams(v->data.rows, v->data.cols);
     }
 

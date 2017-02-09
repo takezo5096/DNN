@@ -36,6 +36,9 @@ public:
     OptimizerSGDMoment(Model *model, float lr, float mu) : Optimizer(model, lr) {
         this->mu = mu;
     }
+    OptimizerSGDMoment(Model *model, float lr, float mu, float clip_grad_threshold) : Optimizer(model, lr, clip_grad_threshold) {
+        this->mu = mu;
+    }
 
     OptimizerParams *createOptimizerParams(Variable *v){
         return new OptimizerSGDMomentParams(v->data.rows, v->data.cols);

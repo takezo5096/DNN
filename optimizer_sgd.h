@@ -30,6 +30,8 @@ public:
 
     OptimizerSGD(Model *model, float lr) : Optimizer(model, lr) {
     }
+    OptimizerSGD(Model *model, float lr, float clip_grad_threshold) : Optimizer(model, lr, clip_grad_threshold) {
+    }
 
     OptimizerParams *createOptimizerParams(Variable *v){
         return new OptimizerSGDParams(v->data.rows, v->data.cols);

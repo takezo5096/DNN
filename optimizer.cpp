@@ -18,6 +18,16 @@ Optimizer::Optimizer(Model *model, float learning_rate) {
     lr = learning_rate;
 
 }
+Optimizer::Optimizer(Model *model, float learning_rate, float clip_grad_threshold) {
+
+    this->model = model;
+
+    lr = learning_rate;
+
+    this->clip_grad_threshold = clip_grad_threshold;
+
+}
+
 Optimizer::~Optimizer() {
 
     delOpts();
@@ -40,19 +50,22 @@ OptimizerParams *Optimizer::createOptimizerParams(Variable *v){
 
 void Optimizer::init() {
 
+    epoch = 1;
     updateParams = model->getUpdateParams();
 
     delOpts();
-
 
     for (int i = 0; i < updateParams.size(); i++) {
         UpdateParams *up = updateParams.at(i);
         for (int j = 0; j < up->params.size(); j++) {
             Variable *v = up->params.at(j);
+            //OptimizerParams *op = createOptimizerParams(v);
+            //if (v == NULL) op->no_params = true;
+            //opts.push_back(op);
             opts.push_back(createOptimizerParams(v));
+
         }
     }
-
 }
 
 
@@ -73,6 +86,20 @@ void Optimizer::zero_grads() {
     }
 }
 
+void Optimizer::clip_grad(Variable *v){
+    if (clip_grad_threshold > 0.0){
+        /*
+        float sq = v->grad.l2();
+        float rate = clip_grad_threshold/sq;
+        if (rate < 1.){
+            v->grad.mul(rate, v->grad);
+        }
+         */
+
+        v->grad.element_wise_clip(v->grad, clip_grad_threshold);
+    }
+}
+
 void Optimizer::update() {
 
     int k = 0;
@@ -82,17 +109,19 @@ void Optimizer::update() {
         for(int j=0; j < up->params.size(); j++){
             Variable *v = up->params.at(j);
 
-            //clip gradient
-            if (clip_grad_threshold > 0.0){
-                float sq = v->grad.l2();
-                float rate = clip_grad_threshold/sq;
-                if (rate < 1.){
-                    v->grad.mul(rate, v->grad);
-                }
+            /*
+            if (opts.at(k)->no_params){
+                opts.at(k)->init(v->data.rows, v->data.cols);
+                opts.at(k)->no_params = false;
             }
-
-
+            */
             //cout << v->grad;
+
+            //changed v->grad to v->grad means (v->grad / batch_size )
+            v->grad = 1./v->grad.cols * v->grad;
+
+
+            clip_grad(v);
             update_param(v, *opts.at(k));
             k++;
         }
@@ -129,6 +158,3 @@ void Optimizer::update() {
     zero_grads();
 }
 
-void Optimizer::clip_grads(float threshold){
-        clip_grad_threshold = threshold;
-}

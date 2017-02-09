@@ -155,6 +155,13 @@ public:
                 p->add(conv2d->w); p->add(conv2d->b);
 
                 updateParams.push_back(p);
+            }else if (typeid(PReLU) == id){
+                UpdateParams *p = new UpdateParams();
+                PReLU *prelu = (PReLU *) g;
+
+                p->add(prelu->a);
+
+                updateParams.push_back(p);
             }
 
 
@@ -184,6 +191,8 @@ public:
                 ((BatchNorm *)g)->toHostArray();
             } else if (typeid(Conv2D) == id){
                 ((Conv2D *)g)->toHostArray();
+            }else if (typeid(PReLU) == id) {
+                ((PReLU *) g)->toHostArray();
             }
 
 
@@ -207,6 +216,7 @@ public:
         oa.register_type<BatchNorm>(); // add if you define new function
         oa.register_type<Conv2D>(); // add if you define new function
         oa.register_type<Pooling>(); // add if you define new function
+        oa.register_type<PReLU>(); // add if you define new function
 
         oa << *this;
 
@@ -230,6 +240,7 @@ public:
         ia.register_type<BatchNorm>(); // add if you define new function
         ia.register_type<Conv2D>(); // add if you define new function
         ia.register_type<Pooling>(); // add if you define new function
+        ia.register_type<PReLU>(); // add if you define new function
 
 
         ia >> *this;
@@ -262,6 +273,9 @@ public:
             }
             else if (typeid(Conv2D) == id){
                 ((Conv2D *)g)->fromHostArray();
+            }
+            else if (typeid(PReLU) == id){
+                ((PReLU *)g)->fromHostArray();
             }
         }
 

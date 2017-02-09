@@ -18,7 +18,10 @@
 class OptimizerParams {
 public:
 
+    //bool no_params = false;
     OptimizerParams(){}
+
+    //virtual void init(int row, int cols){cout << "init" <<endl;}
 };
 
 class Optimizer {
@@ -35,9 +38,12 @@ public:
 
     float lr;
 
-    float clip_grad_threshold = 0.;
+    float clip_grad_threshold = 0;
+
 
     Optimizer(Model *model, float learning_rate);
+    Optimizer(Model *model, float learning_rate, float clip_grad_threshold);
+
     ~Optimizer();
 
     void delOpts();
@@ -52,7 +58,7 @@ public:
 
     void update();
 
-    void clip_grads(float threshold);
+    void clip_grad(Variable *v);
 };
 
 

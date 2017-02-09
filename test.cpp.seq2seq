@@ -1,0 +1,523 @@
+#include <vector>
+#include <iostream>
+#include <chrono>
+#include <algorithm>
+#include <functional>
+
+#include <sys/resource.h>
+
+#include <sstream>
+
+#include "graph.h"
+#include "variable.h"
+#include "model.h"
+#include "batchdata.h"
+#include "optimizer_adam.h"
+#include "optimizer_sgd.h"
+#include "optimizer_sgd_moment.h"
+#include "optimizer_adagrad.h"
+#include "word_embed.h"
+
+using namespace std;
+
+MallocCounter mallocCounter;
+
+
+
+void toPVariable(PVariable x1, float *X){
+    x1->data.memSetHost(X);
+}
+
+
+
+WordEmbed *load_data(string filename, int vocab_size, bool addEOS, bool addSOS){
+
+
+    std::ifstream reading_file(filename, std::ios::in);
+
+    std::string reading_line_buffer;
+
+
+    vector<string> sequences;
+    while (!reading_file.eof()) {
+        // read by line
+        std::getline(reading_file, reading_line_buffer);
+
+        //std::cout << reading_line_buffer << std::endl;
+
+        sequences.push_back(reading_line_buffer);
+    }
+
+    WordEmbed *wd = new WordEmbed(vocab_size);
+
+    wd->addSentences(sequences, false, addEOS, addSOS);
+
+    return wd;
+}
+
+
+void makeRandomSeqs(vector<vector<int>> &seqs_ids_ja, vector<vector<int>> &seqs_ids_en){
+
+    srand(time(0));
+
+    vector<pair<vector<int>, vector<int>>> seqs;
+
+    for(int i=0; i<seqs_ids_ja.size(); i++) {
+        seqs.push_back(make_pair(seqs_ids_ja[i], seqs_ids_en[i]));
+    }
+    random_shuffle(seqs.begin(), seqs.end());
+
+    seqs_ids_ja.clear();
+    seqs_ids_en.clear();
+    for (auto v : seqs){
+        seqs_ids_ja.push_back(v.first);
+        seqs_ids_en.push_back(v.second);
+    }
+}
+
+void sortSeqs(vector<vector<int>> &seqs_ids_ja, vector<vector<int>> &seqs_ids_en) {
+
+    vector<pair<int, int>> en_seq_size;
+    for (int i = 0; i < seqs_ids_en.size(); i++) {
+        int len = seqs_ids_en[i].size();
+        en_seq_size.push_back(make_pair(len, i));
+    }
+    sort(en_seq_size.begin(), en_seq_size.end());
+
+    vector<vector<int>> tmp_ja = seqs_ids_ja;
+    vector<vector<int>> tmp_en = seqs_ids_en;
+
+    seqs_ids_ja.clear();
+    seqs_ids_en.clear();
+
+    for (auto a : en_seq_size){
+        //cout << a.first << " " << a.second << endl;
+        int id = a.second;
+
+        seqs_ids_ja.push_back(tmp_ja[id]);
+        seqs_ids_en.push_back(tmp_en[id]);
+    }
+}
+
+Model model;
+
+
+
+// attention ////////////////
+cuMat total_similarity(PVariable h, vector<PVariable> src_hidden_states){
+    cuMat total_values(1, h->data.cols);
+    for(int i=0; i<src_hidden_states.size(); i++) {
+        total_values += (h->data.dot_product(src_hidden_states[i]->data)).exp();
+    }
+
+    return total_values;
+}
+
+
+cuMat cal_attention_score(PVariable h, PVariable s, cuMat &total_similarity_values){
+
+    cuMat current_value = h->data.dot_product(s->data);
+
+    cuMat alpha =  current_value.exp() / total_similarity_values;
+    return alpha;
+}
+
+PVariable cal_attention_vector(PVariable h, vector<PVariable> src_hidden_states){
+
+    cuMat total_similarity_values = total_similarity(h, src_hidden_states);
+
+    PVariable a(new Variable(h->data.rows, h->data.cols, false));
+
+    for(int i=0; i<src_hidden_states.size(); i++){
+        cuMat alpha = cal_attention_score(h, src_hidden_states[i], total_similarity_values);
+
+        a->data += src_hidden_states[i]->data.mat_vec_mul(alpha);
+    }
+
+    return a;
+}
+
+PVariable attention_hidden_state(PVariable h, PVariable a){
+
+    PVariable attention_plus = model.G("attention_plus")->forward(model.G("attention_w_h_linear")->forward(h), model.G("attention_w_a_linear")->forward(a));
+
+    return model.G("attention_linear_tanh")->forward(attention_plus);
+}
+///////////////////////////
+
+
+int get_max_vocab_size(vector<vector<int>> &seqs_ids, int batch_size, int k){
+    int max_size = 0;
+    for (int i = k * batch_size; i < k * batch_size + batch_size; i++) {
+        if (max_size < seqs_ids[i].size()) max_size = seqs_ids[i].size();
+    }
+    return max_size;
+}
+
+
+vector<PVariable> encoder(vector<vector<int>> &seqs_ids_ja, WordEmbed *wd_ja, int batch_size, int vocab_size, int k){
+
+    int max_vocab_size_ja = get_max_vocab_size(seqs_ids_ja, batch_size, k);
+    //cout << "max_vocab_size_ja:" << max_vocab_size_ja << endl;
+
+
+    vector<PVariable> src_hidden_states;
+
+    for (int j = 0; j < max_vocab_size_ja; j++) {
+
+        float data_ja[vocab_size * batch_size];
+
+        int batch_idx = 0;
+        for (int i = k * batch_size; i < k * batch_size + batch_size; i++) {
+            vector<int> word_ids = seqs_ids_ja[i];
+
+            wd_ja->padding(word_ids, max_vocab_size_ja);
+
+            reverse(word_ids.begin(), word_ids.end());
+
+            bool ignore = false;
+            //if (word_ids[j] == wd_ja->PAD_ID) ignore = true;
+            wd_ja->toOneHot(vocab_size, data_ja, word_ids[j], batch_idx, ignore);
+            batch_idx++;
+        }
+
+        PVariable x(new Variable(vocab_size, batch_size, false));
+        toPVariable(x, data_ja);
+
+        PVariable embed = model.G("embed_ja")->forward(x);
+        PVariable tanh_ja = model.G("tanh_ja")->forward(embed);
+        PVariable h = model.G("lstm_ja")->forward(tanh_ja);
+        //PVariable h = model.G("tanh_ja2")->forward(tmp);
+
+        src_hidden_states.push_back(h);
+    }
+
+
+    //connect ENCODER and DECODER
+    //((FullLSTM *)model.G("lstm_ja"))->is_last_backward = true;
+    //((FullLSTM *)model.G("lstm_en"))->h = ((FullLSTM *)model.G("lstm_ja"))->h;
+    //((FullLSTM *)model.G("lstm_en"))->h->is_last_backward = &((FullLSTM *)model.G("lstm_en"))->is_last_backward;
+    //((GRU *)model.G("lstm_ja"))->is_last_backward = true;
+    //((GRU *)model.G("lstm_en"))->h = ((GRU *)model.G("lstm_ja"))->h;
+    //((GRU *)model.G("lstm_en"))->h->is_last_backward = &((GRU *)model.G("lstm_en"))->is_last_backward;
+    ((FullLSTM2 *)model.G("lstm_ja"))->is_last_backward = true;
+    ((FullLSTM2 *)model.G("lstm_en"))->h = ((FullLSTM2 *)model.G("lstm_ja"))->h;
+    ((FullLSTM2 *)model.G("lstm_en"))->h->is_last_backward = &((FullLSTM2 *)model.G("lstm_en"))->is_last_backward;
+
+    return src_hidden_states;
+}
+
+
+vector<int> predict(vector<vector<int>> &seqs_ids_ja, vector<vector<int>> &seqs_ids_en,
+                           WordEmbed *wd_ja, WordEmbed *wd_en,
+                           int vocab_size, int k){
+
+    int batch_size = 1;
+
+    vector<int> predict_word_ids;
+
+    // ENCODER /////////////////////////////////////////////
+    vector<PVariable> src_hidden_states = encoder(seqs_ids_ja, wd_ja, batch_size, vocab_size, k);
+
+
+    // DECODER /////////////////////////////////////////////
+    int max_vocab_size_en = get_max_vocab_size(seqs_ids_en, batch_size, k);
+
+    PVariable loss_sum(new Variable(1, 1));
+
+    float data_en[vocab_size * batch_size];
+    PVariable t(new Variable(vocab_size, batch_size, false));
+
+    for (int i = 0; i < batch_size; i++) {
+        wd_en->toOneHot(vocab_size, data_en, wd_en->SOS_ID, i, false);
+    }
+    toPVariable(t, data_en);
+
+    int max_loop = 100;
+    for (int j = 0; j < max_loop; j++) {
+
+        PVariable embed_en = model.G("embed_en")->forward(t);
+        PVariable tanh_en = model.G("tanh_en")->forward(embed_en);
+        PVariable state_en = model.G("lstm_en")->forward(tanh_en);
+        //PVariable state_en = model.G("tanh_en2")->forward(state_en_tmp);
+
+        // attention //////////
+        PVariable a = cal_attention_vector(state_en, src_hidden_states);
+        PVariable state_en_attention = attention_hidden_state(state_en, a);
+        //////////////////////
+
+        PVariable linear_in1 = model.G("linear_in1")->forward(state_en_attention);
+        PVariable linear_in2 = model.G("tanh1")->forward(linear_in1);
+        PVariable in = model.G("linear_in2")->forward(linear_in2);
+
+        PVariable softmax = model.G("softmax")->forward(in);
+
+        int maxIdx[batch_size]; //batch_size is 1
+        softmax->data.maxRowIndex(maxIdx);
+
+        if (maxIdx[0] == wd_en->EOS_ID){
+            break;
+        }
+
+        predict_word_ids.push_back(maxIdx[0]);
+
+        wd_en->toOneHot(vocab_size, data_en, maxIdx[0], 0, false);
+
+        PVariable t2(new Variable(vocab_size, batch_size, false));
+        toPVariable(t2, data_en);
+
+
+        /*
+        //input feeding //////////
+        // http://www.aclweb.org/anthology/D15-1166
+        PVariable t3(new Variable(vocab_size, batch_size, false));
+        t3->data = t2->data;
+        PVariable in2(new Variable(vocab_size, batch_size, false));
+        in2->data = in->data;
+        PVariable t4 = model.G("input_feeding_plus")->forward(model.G("input_feeding_linear")->forward(in2), t3);
+         t = t4;
+        //////////////////////////
+        */
+        t = t2;
+
+    }
+
+    return predict_word_ids;
+}
+
+
+PVariable forward_one_step(vector<vector<int>> &seqs_ids_ja, vector<vector<int>> &seqs_ids_en,
+                           WordEmbed *wd_ja, WordEmbed *wd_en,
+                           int batch_size, int vocab_size, int k, float *loss_val){
+
+    // ENCODER /////////////////////////////////////////////
+    vector<PVariable> src_hidden_states = encoder(seqs_ids_ja, wd_ja, batch_size, vocab_size, k);
+
+    // DECODER /////////////////////////////////////////////
+    int max_vocab_size_en = get_max_vocab_size(seqs_ids_en, batch_size, k);
+    //cout << "max_vocab_size_en:" << max_vocab_size_en << endl;
+
+    PVariable loss_sum(new Variable(1, 1));
+
+    float data_en[vocab_size * batch_size];
+    PVariable t(new Variable(vocab_size, batch_size, false));
+
+    for (int i = 0; i < batch_size; i++) {
+        wd_en->toOneHot(vocab_size, data_en, wd_en->SOS_ID, i, false);
+    }
+    toPVariable(t, data_en);
+
+    for (int j = 0; j < max_vocab_size_en; j++) {
+
+        PVariable embed_en = model.G("embed_en")->forward(t);
+        PVariable tanh_en = model.G("tanh_en")->forward(embed_en);
+        PVariable state_en = model.G("lstm_en")->forward(tanh_en);
+        //PVariable state_en = model.G("tanh_en2")->forward(state_en_tmp);
+
+        // attention //////////
+        PVariable a = cal_attention_vector(state_en, src_hidden_states);
+        PVariable state_en_attention = attention_hidden_state(state_en, a);
+        //////////////////////
+
+        PVariable linear_in1 = model.G("linear_in1")->forward(state_en_attention);
+        PVariable linear_in2 = model.G("tanh1")->forward(linear_in1);
+        PVariable in = model.G("linear_in2")->forward(linear_in2);
+
+
+        int batch_idx = 0;
+        for (int i = k * batch_size; i < k * batch_size + batch_size; i++) {
+            vector<int> word_ids = seqs_ids_en[i];
+
+            wd_en->padding(word_ids, max_vocab_size_en);
+
+            bool ignore = false;
+            //if (word_ids[j] == wd_en->PAD_ID) ignore = true;
+            wd_en->toOneHot(vocab_size, data_en, word_ids[j], batch_idx, ignore);
+            batch_idx++;
+        }
+        PVariable t2(new Variable(vocab_size, batch_size, false));
+        toPVariable(t2, data_en);
+
+        PVariable loss = model.G("softmax_cross_entropy_en")->forward(in, t2);
+
+        *loss_val += loss->val();
+
+        loss_sum = model.G("plus_en")->forward(loss_sum, loss);
+
+
+
+        /*
+        //input feeding //////
+        // http://www.aclweb.org/anthology/D15-1166
+        PVariable t3(new Variable(vocab_size, batch_size, false));
+        t3->data = t2->data;
+        PVariable in2(new Variable(vocab_size, batch_size, false));
+        in2->data = in->data;
+        PVariable t4 = model.G("input_feeding_plus")->forward(model.G("input_feeding_linear")->forward(in2), t3);
+         t = t4;
+        //////////////////////
+        */
+        t = t2;
+    }
+
+    *loss_val /= max_vocab_size_en;
+
+    return loss_sum;
+}
+
+
+int main(){
+
+    int batch_size = 64;
+
+    int vocab_size = 1000;
+
+    int embed_size = 100;
+    int h_size = 200;
+
+    float clip_grad_threshold = 0;
+    float learning_rate = 0.001; //ADAM
+    //float learning_rate = 0.0001; //SDG
+    //float learning_rate = 0.01; //ADAGRAD
+
+    int epoch = 300;
+
+
+    WordEmbed *wd_ja = load_data("train10000.ja", vocab_size, false, false);
+    WordEmbed *wd_en = load_data("train10000.en", vocab_size, true, false);
+
+    vector<vector<int>> seqs_ids_ja = wd_ja->getSequencesIds();
+    vector<vector<int>> seqs_ids_en = wd_en->getSequencesIds();
+
+    cout << "ja word_count:" << wd_ja->getWordCount() << endl;
+    cout << "en word_count:" << wd_en->getWordCount() << endl;
+
+
+    model.putG("embed_ja", new Linear(embed_size, vocab_size));
+    model.putG("tanh_ja", new Tanh());
+    //model.putG("lstm_ja", new FullLSTM(h_size, embed_size));
+    //model.putG("lstm_ja", new GRU(h_size, embed_size));
+    model.putG("lstm_ja", new FullLSTM2(h_size, embed_size));
+    //model.putG("tanh_ja2", new Tanh());
+
+
+    model.putG("embed_en", new Linear(embed_size, vocab_size));
+    model.putG("tanh_en", new Tanh());
+    //model.putG("lstm_en", new FullLSTM(h_size, embed_size));
+    //model.putG("lstm_en", new GRU(h_size, embed_size));
+    model.putG("lstm_en", new FullLSTM2(h_size, embed_size));
+    //model.putG("tanh_en2", new Tanh());
+
+
+    model.putG("linear_in1", new Linear(embed_size, h_size));
+    model.putG("tanh1", new Tanh());
+    model.putG("linear_in2", new Linear(vocab_size, embed_size));
+
+    model.putG("softmax_cross_entropy_en", new SoftmaxCrossEntropy());
+    model.putG("plus_en", new Plus());
+
+    model.putG("softmax", new Softmax());
+
+
+
+    //attention ///////////
+    model.putG("attention_w_h_linear", new Linear(h_size, h_size, false));
+    model.putG("attention_w_a_linear", new Linear(h_size, h_size, true));
+    model.putG("attention_plus", new Plus());
+    model.putG("attention_linear_tanh", new Tanh());
+
+    //model.putG("input_feeding_linear", new Linear(vocab_size, vocab_size, false));
+    //model.putG("input_feeding_plus", new Plus());
+
+    ///////////////////////
+
+
+
+
+    OptimizerAdam optimizer(&model, learning_rate, clip_grad_threshold);
+    //OptimizerSGDMoment optimizer(&model, learning_rate, 0.7);
+    //OptimizerAdagrad optimizer(&model, learning_rate, clip_grad_threshold);
+    optimizer.init();
+
+
+    int step = seqs_ids_ja.size() / batch_size;
+    cout << "seqs_ids_ja.size():" << seqs_ids_ja.size() << " step:" << step << endl;
+
+    sortSeqs(seqs_ids_ja, seqs_ids_en);
+
+    for(int i=0; i<epoch; i++) {
+
+        makeRandomSeqs(seqs_ids_ja, seqs_ids_en);
+
+        for(int k=0; k<step; k++) {
+            float loss = 0;
+            PVariable loss_sum = forward_one_step(seqs_ids_ja, seqs_ids_en, wd_ja, wd_en, batch_size, vocab_size, k, &loss);
+
+            loss_sum->backward();
+            optimizer.update();
+            model.zero_grads();
+            model.unchain();
+//exit(0);
+            //((FullLSTM *) model.G("lstm_ja"))->reset_state();
+            //((FullLSTM *) model.G("lstm_en"))->reset_state();
+            //((GRU *) model.G("lstm_ja"))->reset_state();
+            //((GRU *) model.G("lstm_en"))->reset_state();
+            ((FullLSTM2 *) model.G("lstm_ja"))->reset_state();
+            ((FullLSTM2 *) model.G("lstm_en"))->reset_state();
+
+            float cur_perp = exp(loss);
+            cout << "epoch:" << (i+1) << "/" << epoch << " perplexity:" << cur_perp << " loss:" << loss << endl;
+        }
+    }
+
+
+    cout << "saving model" << endl;
+    model.save("seq2seq.model");
+
+
+    //cout << "loading model" << endl;
+    //model.load("seq2seq.model");
+
+    cout << "predict" << endl;
+    for (int target_seq_id=0; target_seq_id<10; target_seq_id++) {
+        vector<int> predict_word_ids = predict(seqs_ids_ja, seqs_ids_en, wd_ja, wd_en, vocab_size, target_seq_id);
+
+        vector<int> word_ids_ja = seqs_ids_ja[target_seq_id];
+        vector<int> word_ids_en = seqs_ids_en[target_seq_id];
+
+        for (auto word_id : word_ids_ja) {
+            string w = wd_ja->toWord(word_id);
+            //cout << word_id << ":" << w << " ";
+            cout << w << " ";
+        }
+        cout << endl;
+        for (auto word_id : word_ids_en) {
+            string w = wd_en->toWord(word_id);
+            //cout << word_id << ":" << w << " ";
+            cout << w << " ";
+        }
+        cout << endl;
+
+        for (auto word_id : predict_word_ids) {
+            string w = wd_en->toWord(word_id);
+            //cout << word_id << ":" << w << " ";
+            cout << w << " ";
+        }
+        cout << endl;
+        cout << "----------------------------------------------------" << endl;
+
+        model.unchain();
+
+        //((FullLSTM *) model.G("lstm_ja"))->reset_state();
+        //((FullLSTM *) model.G("lstm_en"))->reset_state();
+        //((GRU *) model.G("lstm_ja"))->reset_state();
+        //((GRU *) model.G("lstm_en"))->reset_state();
+        ((FullLSTM2 *) model.G("lstm_ja"))->reset_state();
+        ((FullLSTM2 *) model.G("lstm_en"))->reset_state();
+    }
+
+    delete wd_ja;
+    delete wd_en;
+
+}
+

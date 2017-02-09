@@ -130,6 +130,42 @@ PVariable ReLU::forward(PVariable v){
         return pf->forward(v);
 }
 
+PReLU::PReLU() : Graph() {
+
+}
+PReLU::PReLU(int rows, int cols) {
+    a = new Variable(rows, cols);
+    // init weight using 0.25
+    // https://arxiv.org/pdf/1502.01852.pdf
+    a->data.fill(0.25);
+
+}
+PVariable PReLU::forward(PVariable v){
+    //if (a == NULL){
+    //    a = new Variable(v->data.rows, v->data.cols);
+    //    a->data.fill(2.5);
+    //}
+
+    Function *f = new FunctionPReLU(this->a);
+    PFunction pf(f);
+    funcs_chain.push_back(pf);
+    return pf->forward(v);
+}
+
+PReLU::~PReLU(){
+    if (a != NULL) delete a;
+}
+
+void PReLU::toHostArray(){
+    a->data.toHostArray();
+}
+void PReLU::fromHostArray(){
+    a->data.fromHostArray();
+}
+
+
+
+
 Tanh::Tanh() : Graph() {
 
 }
@@ -1497,10 +1533,9 @@ void GRU::fromHostArray(){
 
 
 BatchNorm::BatchNorm() : Graph() {
-
 }
 
-BatchNorm::BatchNorm(int element_size) {
+BatchNorm::BatchNorm(int element_size, float decay) {
     x_mean = new Variable(element_size, 1);
     x_var = new Variable(element_size, 1);
 
@@ -1508,6 +1543,8 @@ BatchNorm::BatchNorm(int element_size) {
     beta = new Variable(element_size, 1);
 
     gamma->randoms(0., sqrt((1./(float)element_size)));
+
+    lambda = decay;
 
 }
 BatchNorm::~BatchNorm() {
@@ -1539,8 +1576,15 @@ PVariable BatchNorm::forward(PVariable x) {
     x_h = p_batch_norm->forward(x);
 
     if (is_train) {
-        x_mean->data = lambda * x_mean->data + (1.0-lambda) * f->rmu;
-        x_var->data = lambda * x_var->data  + (1.0-lambda) * f->var;
+        float lam = lambda;
+        if (is_first){
+            lam = 0.0;
+            is_first = false;
+        }
+        x_mean->data = lam * x_mean->data + (1.0-lam) * f->rmu;
+        x_var->data = lam * x_var->data  + (1.0-lam) * f->var;
+        //cout << x_mean->data;
+        //cout << f->rmu;
     }
 
 
@@ -1572,7 +1616,6 @@ Conv2D::Conv2D(int batch_num, int channel_num, int w_size, int h_size, int filte
 
     this->batch_num = batch_num;
     this->channel_num = channel_num;
-    this->filter_num = filter_num;
     this->w_size = w_size;
     this->h_size = h_size;
     this->filter_size = filter_size;
@@ -1581,8 +1624,14 @@ Conv2D::Conv2D(int batch_num, int channel_num, int w_size, int h_size, int filte
 
     w = new Variable(filter_num, filter_size * filter_size * channel_num);
 
-    w->randoms(0., sqrt((1./(float)w_size*h_size)));
+    //w->randoms(0., sqrt((1./(float)w_size*h_size)));
+    //w->randoms(0., (1./(float)w_size*h_size));
     //w->randoms(0., 1);
+
+    //He-Normal
+    //https://arxiv.org/pdf/1502.01852.pdf
+    w->randoms(0., sqrt(2.0/((float)filter_size*filter_size * channel_num)));
+
 
     b = new Variable(filter_num, 1);
 }
@@ -1601,6 +1650,11 @@ PVariable Conv2D::forward(PVariable x) {
 
     return p_conv2d->forward(x);
 
+}
+
+void Conv2D::zero_grads() {
+    w->zero_grad();
+    b->zero_grad();
 }
 
 

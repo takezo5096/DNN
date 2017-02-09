@@ -97,6 +97,29 @@ private:
 
 };
 
+class PReLU : public Graph {
+public:
+    Variable *a = NULL;
+
+    PReLU();
+    PReLU(int rows, int cols);
+    ~PReLU();
+
+    PVariable forward(PVariable v);
+
+    void toHostArray();
+    void fromHostArray();
+
+private:
+    friend class boost::serialization::access;
+    template<class Archive> void serialize(Archive & ar, const unsigned int version) {
+
+        ar & boost::serialization::base_object<Graph>(*this);
+    }
+
+};
+
+
 class Tanh : public Graph {
 public:
 
@@ -556,12 +579,13 @@ public:
     Variable *x_mean = NULL;
     Variable *x_var = NULL;
 
-    float lambda = 0.9;
+    float lambda = 0.999;
     bool is_train = true;
+    bool is_first = true;
 
 
     BatchNorm();
-    BatchNorm(int element_size);
+    BatchNorm(int element_size, float decay);
     ~BatchNorm();
 
     PVariable forward(PVariable x);
@@ -604,6 +628,7 @@ public:
 
     PVariable forward(PVariable x);
 
+    void zero_grads();
 
     void toHostArray();
     void fromHostArray();
@@ -633,7 +658,8 @@ public:
     PVariable forward(PVariable x);
 
 
-private:
+
+        private:
     friend class boost::serialization::access;
     template<class Archive> void serialize(Archive & ar, const unsigned int version) {
 

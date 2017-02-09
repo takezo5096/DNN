@@ -1,0 +1,248 @@
+#include <vector>
+#include <iostream>
+#include <chrono>
+#include <algorithm>
+#include <functional>
+
+#include <sys/resource.h>
+
+#include <sstream>
+#include <random>
+
+//#include "function.h"
+#include "graph.h"
+#include "variable.h"
+#include "model.h"
+#include "batchdata.h"
+#include "optimizer_adam.h"
+#include "optimizer_sgd.h"
+#include "optimizer_sgd_moment.h"
+#include "optimizer_adagrad.h"
+
+#include "word_embed.h"
+
+using namespace std;
+
+MallocCounter mallocCounter;
+
+
+
+void toPVariable(PVariable x1, float *X){
+    x1->data.memSetHost(X);
+}
+
+float getAccurecy(Graph *g_softmax, PVariable h, PVariable d, int batchSize){
+    PVariable y = g_softmax->forward(h, d);
+
+    int maxIdx_z3[batchSize];
+    y->data.maxRowIndex(maxIdx_z3);
+
+    int maxIdx_d[batchSize];
+    d->data.maxRowIndex(maxIdx_d);
+
+    g_softmax->remove_chain();
+
+    int hit = 0;
+    for(int i=0; i<batchSize; i++){
+        if (maxIdx_d[i] == maxIdx_z3[i]) hit++;
+    }
+    float accurecy = ((float)hit) / ((float) batchSize);
+    return accurecy;
+}
+
+
+int get_random_number(){
+    std::random_device rnd;
+    std::mt19937 mt(rnd());
+    std::uniform_int_distribution<> rand2(0, 1);
+    return rand2(mt);
+}
+
+
+bool check_updated_values(vector<float> &values, float a, float learning_rate){
+
+    if (learning_rate < 0.0001) return false;
+
+    values.push_back(a);
+    if (values.size() > 5) values.erase(values.begin());
+
+    vector<float> diffs;
+    for (int i=0; i<values.size()-1; i++){
+        float first = values[i];
+        float second = values[i+1];
+
+        float diff = first - second;
+        diffs.push_back(diff);
+    }
+
+    float avg_ratio = 999;
+
+    if (diffs.size() != 0) {
+        float value_avg = std::accumulate(values.begin(), values.end(), 0.0) / values.size();
+        float diff_avg = std::accumulate(diffs.begin(), diffs.end(), 0.0) / diffs.size();
+        avg_ratio = diff_avg / value_avg;
+        cout << "value_avg:" << value_avg << " diff_avg:" << diff_avg << " avg_ratio:" << avg_ratio << " learning_rate:" << learning_rate << endl;
+    }
+
+
+    if (std::abs(avg_ratio) <= learning_rate) return true;
+    else return false;
+}
+
+
+Model model;
+
+
+int main(){
+
+    //int data_size = 20;
+    //int h_size = 100;
+    int data_size = 5;
+    int h_size = 4;
+    int epoch = 100000;
+    float learning_rate = 0.001;
+    //float learning_rate = 0.01;
+    float clip_grad_threshold = 0;
+    int display_size = 100;
+
+
+    float train_data[2][data_size+1];
+    train_data[0][0] = data_size;
+    train_data[0][data_size] = data_size;
+    train_data[1][0] = data_size-1;
+    train_data[1][data_size] = data_size-1;
+
+    for(int i=0; i<data_size-1; i++){
+        train_data[0][i+1] = i;
+        train_data[1][i+1] = i;
+
+    }
+
+    cout << "train data" << endl;
+    for(int i=0; i<data_size+1; i++){
+        cout << train_data[0][i] << " ";
+    }
+    cout << endl;
+    for(int i=0; i<data_size+1; i++){
+        cout << train_data[1][i] << " ";
+    }
+    cout << endl;
+
+    //model.putG("lstm", new FullLSTM(h_size, data_size+1));
+    //model.putG("lstm", new GRU(h_size, data_size+1));
+    model.putG("lstm", new FullLSTM2(h_size, data_size+1));
+    model.putG("tanh", new Tanh());
+    model.putG("linear", new Linear(data_size+1, h_size));
+    model.putG("softmax_cross_entropy", new SoftmaxCrossEntropy());
+    model.putG("plus", new Plus());
+    model.putG("softmax", new Softmax());
+
+    OptimizerAdam optimizer(&model, learning_rate, clip_grad_threshold);
+    //OptimizerSGDMoment optimizer(&model, learning_rate, 0.7);
+    //OptimizerAdagrad optimizer(&model, learning_rate, clip_grad_threshold);
+    optimizer.init();
+
+    vector<float> loss_values;
+
+    WordEmbed wd(data_size);
+
+    float loss_vals = 0;
+
+    float data_x[data_size+1], data_t[data_size+1];
+    for(int i=1; i<=epoch; i++) {
+
+        int which_data = get_random_number();
+
+        PVariable loss_sum(new Variable(1, 1));
+
+        for(int j=0; j<data_size; j++) {
+
+            wd.toOneHot(data_size+1, data_x, train_data[which_data][j], 0, false);
+            wd.toOneHot(data_size+1, data_t, train_data[which_data][j + 1], 0, false);
+
+            PVariable x(new Variable(data_size+1, 1, false));
+            PVariable t(new Variable(data_size+1, 1, false));
+
+            toPVariable(x, data_x);
+            toPVariable(t, data_t);
+
+            PVariable _y = model.G("lstm")->forward(x);
+            PVariable _y2 = model.G("tanh")->forward(_y);
+            PVariable _y3 = model.G("linear")->forward(_y2);
+            PVariable loss = model.G("softmax_cross_entropy")->forward(_y3, t);
+
+            loss_vals += loss->val();
+
+            loss_sum = model.G("plus")->forward(loss_sum, loss);
+        }
+
+        loss_sum->backward();
+        optimizer.update();
+        model.zero_grads();
+
+        if (i % display_size == 0) {
+            float loss_avg = loss_vals / data_size / display_size;
+            cout << "epoch:" << i << " loss:" <<  loss_avg << endl;
+
+            /*
+            if (check_updated_values(loss_values, loss_avg, optimizer.lr)){
+                optimizer.lr /= 10;
+                cout << "---------------------- change learning rate:" << optimizer.lr << endl;
+            }
+            */
+
+
+
+            model.unchain();
+
+            model.G("lstm")->reset_state();
+
+            int maxIdx_z3[1];
+            maxIdx_z3[0] = train_data[which_data][0];
+
+            cout << "start=" << maxIdx_z3[0] << " ";
+
+            int accuracy = 0;
+            for(int j=0; j<data_size; j++) {
+
+                wd.toOneHot(data_size+1, data_x, maxIdx_z3[0], 0, false);
+                wd.toOneHot(data_size+1, data_t, train_data[which_data][j + 1], 0, false);
+
+                //cout << train_data[j + 1] << " ";
+
+                PVariable x(new Variable(data_size+1, 1, false));
+                PVariable t(new Variable(data_size+1, 1, false));
+
+                toPVariable(x, data_x);
+                toPVariable(t, data_t);
+
+                PVariable _y = model.G("lstm")->forward(x);
+                PVariable _y2 = model.G("tanh")->forward(_y);
+                PVariable _y3 = model.G("linear")->forward(_y2);
+                PVariable y = model.G("softmax")->forward(_y3);
+
+
+                y->data.maxRowIndex(maxIdx_z3);
+                cout << maxIdx_z3[0];
+
+                cout << "=";
+                int maxIdx_d[1];
+                t->data.maxRowIndex(maxIdx_d);
+                cout << maxIdx_d[0] << " ";
+
+                if (maxIdx_z3[0] - maxIdx_d[0] == 0) accuracy++;
+            }
+            cout << endl;
+
+            cout << "accuracy:" << ((float) accuracy)/((float) data_size)*100 << "%" << endl;
+
+
+            loss_vals = 0;
+        }
+
+        model.unchain();
+        model.G("lstm")->reset_state();
+    }
+
+}
+

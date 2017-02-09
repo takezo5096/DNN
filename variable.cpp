@@ -19,7 +19,7 @@ using namespace std;
 
 
 //global variable for id
-int gVariableId = -1;
+int gVariableId = 0;
 
 // Variable class //////////////////////////////////////////////////////
 Variable::Variable() {
@@ -39,6 +39,7 @@ Variable::Variable(const Variable &a){
 
     creator = a.creator;
 
+
     this->isGetGrad = a.isGetGrad;
     this->isSparse = a.isSparse;
 
@@ -49,9 +50,7 @@ Variable::Variable(int rows, int cols) {
     id = gVariableId;
     gVariableId++;
 
-    //cout << "Variable constractor1" << endl;
     data = cuMat(rows, cols);
-    //cout << "Variable constractor2" << endl;
     grad = cuMat(rows, cols);
 
     seed = cuMat(grad.rows, grad.cols);
@@ -68,9 +67,7 @@ Variable::Variable(int rows, int cols, bool is_get_grad){
     id = gVariableId;
     gVariableId++;
 
-    //cout << "Variable constractor1" << endl;
     data = cuMat(rows, cols);
-    //cout << "Variable constractor2" << endl;
     grad = cuMat(rows, cols);
 
     seed = cuMat(grad.rows, grad.cols);
@@ -105,7 +102,6 @@ Variable::Variable(Function *f, int rows, int cols) {
     seed.ones();
 
     creator = f;
-
 }
 
 Variable::Variable(Function *f, cuMat &input) {
@@ -126,13 +122,8 @@ Variable::Variable(vector<float> &ids, int nums){
     id = gVariableId;
     gVariableId++;
 
-    //cout << "Variable::Variable embed 1 nums:" << nums << endl;
-    //for(int id : ids) cout << id  << ",";
-    //cout << endl;
     data_sparse = cuMatSparse(ids, nums);
     //cuMat tmp = data_sparse.toDense();
-    //cout << tmp;
-    //cout << "Variable::Variable embed 2" << endl;
     grad = cuMat(data_sparse.rows, data_sparse.cols);
 
     seed = cuMat(grad.rows, grad.cols);
@@ -142,6 +133,7 @@ Variable::Variable(vector<float> &ids, int nums){
 
     this->isGetGrad = false;
     this->isSparse = true;
+
 }
 
 
@@ -164,28 +156,13 @@ Variable &Variable::operator=(const Variable &a) {
 
     creator = a.creator;
 
+
     this->isGetGrad = a.isGetGrad;
     this->isSparse = a.isSparse;
 
     return *this;
 }
 
-/*
- Variable Variable::sin(){
-     vector<Variable *> inputs;
-     inputs.push_back(this);
-     Function *f = new FunctionSin();
-     Variable vn = *f->forward(inputs);
-     return vn;
- }
- Variable Variable::log(){
-      vector<Variable *> inputs;
-      inputs.push_back(this);
-      Function *f = new FunctionLog();
-      Variable *vn = f->forward(inputs);
-      return *vn;
-  }
-*/
 
 void Variable::creatorSet(Function *f) {
     this->creator = f;
@@ -199,43 +176,40 @@ void Variable::backward() {
 
 }
 void Variable::backward(Variable *v) {
-    if (v == NULL)
+
+    if (v == NULL) {
         return;
+    }
 
     if (v->creator != NULL) {
-        //cout << "Variable::backward  1" << endl;
-        //cout << v->grad;
-        //cout << "Variable::backward v->grad.sum():" << v->grad.sum() << endl;
 
-        //std::chrono::system_clock::time_point  start, end;
+        //cout << "backward name1:" << v->creator->name << endl;
 
-        //start = std::chrono::system_clock::now();
+
+        if (v->last_opt != NULL && v->opt == *v->last_opt){
+            *v->is_last_backward = true;
+            //cout << "is backwoard v->opt:" << v->opt << " v->creator->name:" << v->creator->name << endl;
+        }
+
+        if (v->forward_count >0) v->forward_count--;
+
+        if (v->is_last_backward != NULL && *v->is_last_backward == false) return;
+
+        if (v->forward_count != 0) return;
+
 
         v->creator->backward(v->grad);
 
-        //end = std::chrono::system_clock::now();
-        //int elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end-start).count();
-        //cout << "v->creator->name:" << v->creator->name << " v->creator->id:" << v->creator->id << " time:" << elapsed << endl;
+        //cout << "backward name2:" << v->creator->name << endl;
 
-        if (v->creator->paramsStackNums.empty()) return;
+        for (int i = 0; i< v->creator->inputs.size(); i++) {
 
-        //cout << "&&&&&&&&&&&&&&&1 Variable::backward  v->creator->id:" << v->creator->id << " v->creator->paramsStackNums.size():" << v->creator->paramsStackNums.size() << endl;
-        int paramNums = v->creator->paramsStackNums.back();
-
-        FunctionParam *p  = v->creator->paramsStack[paramNums];
-        bool isPop = v->creator->popParamStack();
-        //cout << "&&&&&&&&&&&&&&&2 Variable::backward  v->creator->id:" << v->creator->id << " paramNums:" << paramNums << " v->creator->paramsStackNums.size():" << v->creator->paramsStackNums.size() << endl;
-
-
-        for (int i = p->inputs.size()-1; i >= 0; i--) {
-            PVariable nv = p->inputs[i];
-            //cout << "Variable::backward 2" << endl;
-            //cout << nv->grad;
+            PVariable nv = v->creator->inputs[i];
 
             this->backward(nv.get());
         }
-        //v->creator->clearParamStack(isPop);
-
+    }
+    else{
     }
 }
 
@@ -246,63 +220,53 @@ void Variable::zero_grads() {
 }
 void Variable::zero_grads(Variable *v) {
 
-    for (Function *f : v->functions_history){
-        f->init();
-    }
-}
+    if (v == NULL)
+        return;
 
-void Variable::unchain() {
+    v->grad.mul(0, v->grad);
+    v->forward_count = 0;
 
-    this->unchain(this);
+    if (v->creator != NULL) {
 
-}
 
-void Variable::unchain(Variable *vv) {
+        for (int i = 0; i < v->creator->inputs.size(); i++) {
+            PVariable nv = v->creator->inputs[i];
 
-    //cout << "Variable::unchain vv->functions_history.size():" << vv->functions_history.size() << endl;
-    for (Function *f : vv->functions_history){
-
-        //if (f->paramsStackNums.size() > 0){
-        //    cout << "Variable::unchain id:" << f->id << " paramsStackNums.size():" << f->paramsStackNums.size() << endl;
-        //    exit(1);
-        //}
-
-        f->paramsStackNums.clear();
-
-        for (FunctionParam *p : f->paramsStack){
-            if (p != NULL){
-                delete p; p = NULL;
-            }
+            this->zero_grads(nv.get());
         }
-        f->paramsStack.clear();
+
     }
-    vv->functions_history.clear();
-    vv->creator = NULL;
 }
-
-/*
-void Variable::unchain(Variable *vv) {
-
-    vv->functions_history.clear();
-    vv->creator = NULL;
-}
-*/
-
 
 
 void Variable::ones() {
     data.ones();
     grad.mul(0, grad);
+
 }
 void Variable::zeros() {
     data.mul(0, data);
     grad.mul(0, grad);
+    forward_count = 0;
+    last_opt = NULL;
+    is_last_backward = NULL;
+    this->creator = NULL;
 }
+void Variable::unchain(){
+    this->creator = NULL;
+}
+
+void Variable::zero_grad(){
+    grad.mul(0, grad);
+}
+
 void Variable::randoms(float m, float a) {
     random_device rd;
     mt19937 mt(rd());
     //uniform_real_distribution<float> initd1(-a, a);
     normal_distribution<float> initd1(m, a);
+    //gamma_distribution<float> initd1(a, 1.0);
+
 
     for (int i = 0; i < data.rows; i++) {
         for (int j = 0; j < data.cols; j++) {
@@ -317,34 +281,3 @@ float Variable::val(){
 }
 
 
-/*
-Variable operator+(const Variable &v1, const Variable &v2) {
-     //vector<Variable *> inputs;
-     //inputs.push_back(&v1);
-     //inputs.push_back(&v2);
-     Function *f = new FunctionPlus();
-     //Variable vn = *f->forward(inputs);
-     Variable vn = *f->forward(&v1, &v2);
-     return vn;
- }
-
-Variable operator-(const Variable &v1, const Variable &v2) {
-     //vector<Variable *> inputs;
-     //inputs.push_back(&v1);
-     //inputs.push_back(&v2);
-     Function *f = new FunctionMinus();
-     //Variable vn = *f->forward(inputs);
-     Variable vn = *f->forward(&v1, &v2);
-     return vn;
- }
-
-Variable operator*(const Variable &v1, const Variable &v2) {
-     //vector<Variable *> inputs;
-     //inputs.push_back(&v1);
-     //inputs.push_back(&v2);
-     Function *f = new FunctionMul();
-     //Variable vn = *f->forward(inputs);
-     Variable vn = *f->forward(&v1, &v2);
-     return vn;
- }
-*/

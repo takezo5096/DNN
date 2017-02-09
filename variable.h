@@ -32,24 +32,29 @@ private:
     }
 
 public:
-    //using PVariable = shared_ptr<Variable>;
 
-    int id = -1;
+    int id = 0;
+    int opt = 0;
+    int *last_opt = NULL;
+    bool *is_last_backward = NULL;
+
+    int forward_count = 0;
 
     Function *creator = NULL;
 
-    vector<Function *> functions_history;
+    string name;
 
     cuMat data;
     cuMatSparse data_sparse;
     cuMat grad;
     cuMat seed;
 
+    int grad_num = -999;
+
     bool isGetGrad = true;
 
     bool isSparse = false;
 
-    //int refc = 0;
 
     Variable();
 
@@ -79,14 +84,19 @@ public:
     void backward();
     void backward(Variable *v);
 
+
     void zero_grads();
     void zero_grads(Variable *v);
-
-    void unchain();
-    void unchain(Variable *v);
+    /*
+    void truncate();
+    void truncate(Variable *v);
+        */
 
     void ones();
     void zeros();
+    void unchain();
+    void zero_grad();
+
     void randoms(float m, float a);
 
     float val();
@@ -115,13 +125,5 @@ public:
 using PVariable = shared_ptr<Variable>;
 //using PVariable = boost::intrusive_ptr<Variable>;
 
-
-
-/*
-Variable operator+(const Variable &v1, const Variable &v2);
-Variable operator-(const Variable &v1, const Variable &v2);
-
-Variable operator*(const Variable &v1, const Variable &v2);
-*/
 
 #endif

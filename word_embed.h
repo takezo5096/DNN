@@ -17,16 +17,53 @@
 
 using namespace std;
 
+typedef pair<string, int> ass_arr;
+bool sort_less(const ass_arr& left,const ass_arr& right){
+    return left.second < right.second;
+}
+bool sort_greater(const ass_arr& left,const ass_arr& right){
+    return left.second > right.second;
+}
+
 class WordEmbed {
 
     Tokenizer token;
 
-    vector<int> dataset;
+    vector<vector<string>> sequences;
+    vector<vector<int>> sequences_ids;
     map<string, int> idmap;
+    map<int, string> idmap_reverse;
+
+    map<string, int> words_count;
+
+
+
+    int vocab_size = 0;
 
 public:
-    WordEmbed(){
 
+    const int UNK_ID = 0;
+    const int SOS_ID = 1;
+    const int EOS_ID = 2;
+    const int PAD_ID = 3;
+
+    WordEmbed(int vocab_size){
+
+        this->vocab_size = vocab_size;
+
+        idmap["<unk>"] = UNK_ID;
+        idmap_reverse[UNK_ID] = "<unk>";
+        idmap["<sos>"] = SOS_ID;
+        idmap_reverse[SOS_ID] = "<sos>";
+        idmap["<eos>"] = EOS_ID;
+        idmap_reverse[EOS_ID] = "<eos>";
+        idmap["<pad>"] = PAD_ID;
+        idmap_reverse[PAD_ID] = "<pad>";
+    }
+
+
+    int getWordCount(){
+        return words_count.size();
     }
 
     std::string replace( std::string String1, std::string String2, std::string String3 )
@@ -53,49 +90,116 @@ public:
         return v;
     }
 
-    void add(string sentence, bool tokenize){
+
+    void addSentences(vector<string> seqs, bool tokenize, bool addEOS, bool addSOS){
+        for (auto s : seqs){
+            add(s, tokenize, addEOS, addSOS);
+        }
+
+        vector<pair<string, int> > pairs(words_count.size());
+
+        int i=0;
+        for (auto v : words_count){
+            pairs[i] = make_pair(v.first, v.second);
+            i++;
+        }
+
+        sort(pairs.begin(),pairs.end(),sort_greater);
+
+        int cnt = 0;
+        for(auto v : pairs){
+            //cout << v.first << " " << v.second << endl;
+            string w = v.first;
+            if (idmap.count(w) == 0){
+                int id = idmap.size();
+                idmap[w] = id;
+                idmap_reverse[id] = w;
+            }
+            if (cnt == vocab_size) break;
+            cnt++;
+        }
+
+        for (int i=0; i<sequences.size(); i++){
+            vector<string> words = sequences[i];
+            vector<int> word_ids;
+            for (int j=0; j<words.size(); j++){
+                if (idmap.count(words[j]) == 0)word_ids.push_back(UNK_ID);
+                else word_ids.push_back(idmap[words[j]]);
+            }
+            sequences_ids.push_back(word_ids);
+
+        }
+
+    }
+
+    void add(string sentence, bool tokenize, bool addEOS, bool addSOS){
+
+        if (sentence == "") return;
+
+        if (addSOS) sentence = "<sos> " + sentence;
+        if (addEOS) sentence += " <eos>";
 
         //cout << sentence << endl;
         vector<string> words;
         if (tokenize) words = token.parse(sentence);
         else words = split(sentence, ' ');
 
-        for(string w : words){
-            if (idmap.count(w) == 0){
-                idmap[w] = idmap.size();
+        for (auto w : words) {
+            if (words_count.count(w) == 0) words_count[w] = 1;
+            else words_count[w] += 1;
+        }
+
+        sequences.push_back(words);
+    }
+
+
+    vector<vector<int>> getSequencesIds(){
+        return sequences_ids;
+    }
+
+    void padding(vector<int> &ids, int max_size){
+
+        int padding_nums = max_size - ids.size();
+        if (padding_nums > 0){
+            for (int i=0; i<padding_nums; i++){
+                ids.push_back(PAD_ID);
             }
-            dataset.push_back(idmap[w]);
         }
     }
 
-    int getVocabSize(){
-        return idmap.size();
-    }
+    void paddingAll(int max_size){
+        for (int i=0; i<sequences_ids.size(); i++){
 
-    vector<int> getDataset(){
-        return dataset;
-    }
+            this->padding(sequences_ids[i], max_size);
 
-    void toOneHot(float *data, int id, int col){
-
-        int vocab_size=getVocabSize();
-        for(int i=0; i<vocab_size; i++){
-            if (i==id) data[IDX2F(i, col, vocab_size)] = 1.;
-            else data[IDX2F(i, col, vocab_size)] = 0.;
+            /*
+            for (int j=0; j<sequences_ids[i].size(); j++){
+                cout << sequences_ids[i][j] << " ";
+            }
+            cout << endl;
+             */
         }
     }
 
+    void toOneHot(int v_size, float *data, int id, int col, bool ignore){
 
-
-    void toOneHots(float *data, int start, int end){
-
-        int j=0;
-        for(int i=start; i<end; i++){
-            toOneHot(data, dataset[i], j);
-            j++;
+        for(int i=0; i<v_size; i++){
+            if (i==id && !ignore) data[IDX2F(i, col, v_size)] = 1.;
+            else data[IDX2F(i, col, v_size)] = 0.;
         }
-
     }
+
+    vector<vector<string>> getSequences(){
+        return sequences;
+    }
+
+    string toWord(int id){
+        return idmap_reverse[id];
+    }
+    int toId(string w){
+        return idmap[w];
+    }
+
 };
 
 

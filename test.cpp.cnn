@@ -7,7 +7,6 @@
 
 
 
-//#include "function.h"
 #include "graph.h"
 #include "variable.h"
 #include "model.h"
@@ -15,7 +14,6 @@
 #include "batchdata.h"
 #include "iris.h"
 #include "mnist.h"
-//#include "autoencoder.h"
 #include "optimizer_adam.h"
 #include "optimizer_sgd_moment.h"
 #include "optimizer_adagrad.h"
@@ -50,12 +48,25 @@ float getAccurecy(Graph *g_softmax, PVariable h, PVariable d, int batchSize){
 }
 
 
+PVariable forward_one_step(Model &model, PVariable x1){
+    //PVariable h1 = model.G("g_pooling1")->forward(model.G("g_relu1")->forward(model.G("g_conv2d1")->forward(x1)));
+    //PVariable h2 = model.G("g_pooling2")->forward(model.G("g_relu2")->forward(model.G("g_conv2d2")->forward(h1)));
+    PVariable h1 = model.G("g_pooling1")->forward(model.G("g_relu1")->forward(model.G("g_batch_norm1")->forward(model.G("g_conv2d1")->forward(x1))));
+    PVariable h2 = model.G("g_pooling2")->forward(model.G("g_relu2")->forward(model.G("g_batch_norm2")->forward(model.G("g_conv2d2")->forward(h1))));
+
+    //PVariable h3 = model.G("g_relu3")->forward(model.G("g3")->forward(h2));
+    PVariable h3 = model.G("g_relu3")->forward(model.G("g_batch_norm3")->forward(model.G("g3")->forward(h2)));
+    PVariable h4 = model.G("g4")->forward(h3);
+
+    return h4;
+}
+
+
 float test_accurecy(Model &model, vector<BatchData *> &bds_test, int i_size, int o_size, int totalTestSize, int batchSize){
 
-
-    //((BatchNorm *)model.G("g_batch_norm1"))->is_train = false;
-    //((BatchNorm *)model.G("g_batch_norm2"))->is_train = false;
-    //((BatchNorm *)model.G("g_batch_norm3"))->is_train = false;
+    ((BatchNorm *)model.G("g_batch_norm1"))->is_train = false;
+    ((BatchNorm *)model.G("g_batch_norm2"))->is_train = false;
+    ((BatchNorm *)model.G("g_batch_norm3"))->is_train = false;
 
     float accurecy = 0;
     //std::random_shuffle(bds_test.begin(), bds_test.end());
@@ -71,14 +82,7 @@ float test_accurecy(Model &model, vector<BatchData *> &bds_test, int i_size, int
         asMatrix(x1, X);
         asMatrix(d, D);
 
-        PVariable h1 = model.G("g_pooling1")->forward(model.G("g_relu1")->forward(model.G("g_conv2d1")->forward(x1)));
-        PVariable h2 = model.G("g_pooling2")->forward(model.G("g_relu2")->forward(model.G("g_conv2d2")->forward(h1)));
-        //PVariable h1 = model.G("g_pooling1")->forward(model.G("g_relu1")->forward(model.G("g_batch_norm1")->forward(model.G("g_conv2d1")->forward(x1))));
-        //PVariable h2 = model.G("g_pooling2")->forward(model.G("g_relu2")->forward(model.G("g_batch_norm2")->forward(model.G("g_conv2d2")->forward(h1))));
-
-        PVariable h3 = model.G("g_relu3")->forward(model.G("g3")->forward(h2));
-        //PVariable h3 = model.G("g_relu3")->forward(model.G("g_batch_norm3")->forward(model.G("g3")->forward(h2)));
-        PVariable h4 = model.G("g4")->forward(h3);
+        h4 = forward_one_step(model, x1);
 
         accurecy += getAccurecy(model.G("g_softmax"), h4, d, batchSize);
 
@@ -86,13 +90,11 @@ float test_accurecy(Model &model, vector<BatchData *> &bds_test, int i_size, int
 
     }
 
-    //((BatchNorm *)model.G("g_batch_norm1"))->is_train = true;
-    //((BatchNorm *)model.G("g_batch_norm2"))->is_train = true;
-    //((BatchNorm *)model.G("g_batch_norm3"))->is_train = true;
-
+    ((BatchNorm *)model.G("g_batch_norm1"))->is_train = true;
+    ((BatchNorm *)model.G("g_batch_norm2"))->is_train = true;
+    ((BatchNorm *)model.G("g_batch_norm3"))->is_train = true;
 
     return accurecy / predict_epoch;
-
 }
 
 
@@ -109,7 +111,7 @@ int main(){
     int i_size = 784;
     int n_size = 1024;
     int o_size = 10;
-    float learning_rate = 0.0001;
+    float learning_rate = 0.001;
     float ae_learning_rate = 0.001;
     float dropout_p = 0.5;
     float ae_dropout_p = 0.5;
@@ -147,6 +149,7 @@ int main(){
 
     std::chrono::system_clock::time_point  start, end;
 
+    //Prepare MODEL
     cout << "create model..." << endl;
     model.putG("g1", new Linear(n_size, i_size));
     model.putG("g_relu1", new ReLU());
@@ -163,15 +166,12 @@ int main(){
     model.putG("g4", new Linear(o_size, 1024));
     model.putG("g_softmax_cross_entoropy", new SoftmaxCrossEntropy());
     model.putG("g_softmax", new Softmax());
-    //model.putG("g_batch_norm1", new BatchNorm(28*28*32, 0.999));
-    //model.putG("g_batch_norm2", new BatchNorm(14*14*64, 0.999));
-    //model.putG("g_batch_norm3", new BatchNorm(1024, 0.999));
-
+    model.putG("g_batch_norm1", new BatchNorm(28*28*32, 0.999));
+    model.putG("g_batch_norm2", new BatchNorm(14*14*64, 0.999));
+    model.putG("g_batch_norm3", new BatchNorm(1024, 0.999));
 
     // outputDim = 1 + (inputDim + 2*pad - filterDim)/convolutionStride
-    // Conv2D(int batch_num, int channel_num, int w_size, int h_size, int filter_size, int filter_num);
     model.putG("g_conv2d1", new Conv2D(batchSize, 1, 28, 28, 5, 32));
-    //model.putG("g_conv2d2", new Conv2D(batchSize, 32, 28, 28, 5, 64));
     model.putG("g_conv2d2", new Conv2D(batchSize, 32, 14, 14, 5, 64));
 
     // Pooling(int width, int height, int depth, int windowWidth, int windowHeight)
@@ -179,6 +179,7 @@ int main(){
     model.putG("g_pooling2", new Pooling(14, 14, 64, 2, 2));
 
 
+    // Prepare optimizer
     OptimizerAdam optimizer(&model, learning_rate);
     //OptimizerSGDMoment optimizer(&model, 0.1, 0.7);
     //OptimizerAdagrad optimizer(&model, 0.01);
@@ -206,61 +207,19 @@ int main(){
             asMatrix(x1, X);
             asMatrix(d, D);
 
-            // forward ------------------------------------------
-            //PVariable h1 = model.G("g_drop1")->forward(model.G("g_relu1")->forward(model.G("g1")->forward(x1)));
-            //PVariable h2 = model.G("g_drop2")->forward(model.G("g_relu2")->forward(model.G("g2")->forward(h1)));
-            //PVariable h1 = model.G("g_relu1")->forward(model.G("g1")->forward(x1));
-            //PVariable h2 = model.G("g_relu2")->forward(model.G("g2")->forward(h1));
-            //PVariable h1 = model.G("g_relu1")->forward(model.G("g_batch_norm1")->forward(model.G("g1")->forward(x1)));
-            //PVariable h2 = model.G("g_relu2")->forward(model.G("g_batch_norm2")->forward(model.G("g2")->forward(h1)));
-
-            //PVariable h1 = model.G("g_relu1")->forward(model.G("g_conv2d1")->forward(x1));
-            PVariable h1 = model.G("g_pooling1")->forward(model.G("g_relu1")->forward(model.G("g_conv2d1")->forward(x1)));
-            //PVariable h1 = model.G("g_pooling1")->forward(model.G("g_relu1")->forward(model.G("g_batch_norm1")->forward(model.G("g_conv2d1")->forward(x1))));
-            //cout << h1->data;
-            //exit(1);
-            //PVariable h2 = model.G("g_relu2")->forward(model.G("g_conv2d2")->forward(h1));
-            PVariable h2 = model.G("g_pooling2")->forward(model.G("g_relu2")->forward(model.G("g_conv2d2")->forward(h1)));
-            //PVariable h2 = model.G("g_pooling2")->forward(model.G("g_relu2")->forward(model.G("g_batch_norm2")->forward(model.G("g_conv2d2")->forward(h1))));
-            //cout << h2->data;
-            //PVariable h3 = model.G("g3")->forward(h2);
-            PVariable h3 = model.G("g_relu3")->forward(model.G("g3")->forward(h2));
-            //PVariable h3 = model.G("g_relu3")->forward(model.G("g_batch_norm3")->forward(model.G("g3")->forward(h2)));
-            //PVariable h4 = model.G("g4")->forward(model.G("g_drop1")->forward(h3));
-            PVariable h4 = model.G("g4")->forward(h3);
+            PVariable h4= forward_one_step(model, x1);
 
             PVariable loss = model.G("g_softmax_cross_entoropy")->forward(h4, d);
-            //PVariable loss = model.G("g_softmax_cross_entoropy")->forward(h3, d);
 
-
-            // loss ---------------------------------------------
             sum_loss += loss->val();
 
-            // backward -----------------------------------------
             loss->backward();
 
-            // update -------------------------------------------
             optimizer.update();
 
-
             accurecy += getAccurecy(model.G("g_softmax"), h4, d, batchSize);
-            //accurecy += getAccurecy(model.G("g_softmax"), h3, d, batchSize);
 
             model.unchain();
-
-
-            /*
-            if (i % disp_num == 0 && i != 0){
-                end = std::chrono::system_clock::now();
-                int elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end-start).count();
-                float loss_mean = sum_loss/((float)disp_num);
-                float accurecy_mean = accurecy/((float)disp_num);
-                cout << "epoch:" << k+1 << " loss:" << loss_mean << " accurecy:" << setprecision(3) << accurecy_mean*100 << "% time:" << elapsed << "ms" << endl;
-                sum_loss = 0.0;
-                accurecy = 0;
-                start = std::chrono::system_clock::now();
-            }
-            */
         }
 
 
@@ -277,8 +236,6 @@ int main(){
         start = std::chrono::system_clock::now();
 
     }
-
-
 
     //cout << "saving model..." << endl;
     //model.save("mlp_test.model");

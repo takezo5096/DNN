@@ -49,13 +49,13 @@ float getAccurecy(Graph *g_softmax, PVariable h, PVariable d, int batchSize){
 
 
 PVariable forward_one_step(Model &model, PVariable x1){
-    //PVariable h1 = model.G("g_pooling1")->forward(model.G("g_relu1")->forward(model.G("g_conv2d1")->forward(x1)));
-    //PVariable h2 = model.G("g_pooling2")->forward(model.G("g_relu2")->forward(model.G("g_conv2d2")->forward(h1)));
-    PVariable h1 = model.G("g_pooling1")->forward(model.G("g_relu1")->forward(model.G("g_batch_norm1")->forward(model.G("g_conv2d1")->forward(x1))));
-    PVariable h2 = model.G("g_pooling2")->forward(model.G("g_relu2")->forward(model.G("g_batch_norm2")->forward(model.G("g_conv2d2")->forward(h1))));
+    PVariable h1 = model.G("g_pooling1")->forward(model.G("g_relu1")->forward(model.G("g_conv2d1")->forward(x1)));
+    PVariable h2 = model.G("g_pooling2")->forward(model.G("g_relu2")->forward(model.G("g_conv2d2")->forward(h1)));
+    //PVariable h1 = model.G("g_pooling1")->forward(model.G("g_relu1")->forward(model.G("g_batch_norm1")->forward(model.G("g_conv2d1")->forward(x1))));
+    //PVariable h2 = model.G("g_pooling2")->forward(model.G("g_relu2")->forward(model.G("g_batch_norm2")->forward(model.G("g_conv2d2")->forward(h1))));
 
-    //PVariable h3 = model.G("g_relu3")->forward(model.G("g3")->forward(h2));
-    PVariable h3 = model.G("g_relu3")->forward(model.G("g_batch_norm3")->forward(model.G("g3")->forward(h2)));
+    PVariable h3 = model.G("g_relu3")->forward(model.G("g3")->forward(h2));
+    //PVariable h3 = model.G("g_relu3")->forward(model.G("g_batch_norm3")->forward(model.G("g3")->forward(h2)));
     PVariable h4 = model.G("g4")->forward(h3);
 
     return h4;
@@ -64,9 +64,9 @@ PVariable forward_one_step(Model &model, PVariable x1){
 
 float test_accurecy(Model &model, vector<BatchData *> &bds_test, int i_size, int o_size, int totalTestSize, int batchSize){
 
-    ((BatchNorm *)model.G("g_batch_norm1"))->is_train = false;
-    ((BatchNorm *)model.G("g_batch_norm2"))->is_train = false;
-    ((BatchNorm *)model.G("g_batch_norm3"))->is_train = false;
+    //((BatchNorm *)model.G("g_batch_norm1"))->is_train = false;
+    //((BatchNorm *)model.G("g_batch_norm2"))->is_train = false;
+    //((BatchNorm *)model.G("g_batch_norm3"))->is_train = false;
 
     float accurecy = 0;
     //std::random_shuffle(bds_test.begin(), bds_test.end());
@@ -82,7 +82,7 @@ float test_accurecy(Model &model, vector<BatchData *> &bds_test, int i_size, int
         asMatrix(x1, X);
         asMatrix(d, D);
 
-        h4 = forward_one_step(model, x1);
+        PVariable h4 = forward_one_step(model, x1);
 
         accurecy += getAccurecy(model.G("g_softmax"), h4, d, batchSize);
 
@@ -90,9 +90,9 @@ float test_accurecy(Model &model, vector<BatchData *> &bds_test, int i_size, int
 
     }
 
-    ((BatchNorm *)model.G("g_batch_norm1"))->is_train = true;
-    ((BatchNorm *)model.G("g_batch_norm2"))->is_train = true;
-    ((BatchNorm *)model.G("g_batch_norm3"))->is_train = true;
+    //((BatchNorm *)model.G("g_batch_norm1"))->is_train = true;
+    //((BatchNorm *)model.G("g_batch_norm2"))->is_train = true;
+    //((BatchNorm *)model.G("g_batch_norm3"))->is_train = true;
 
     return accurecy / predict_epoch;
 }
@@ -166,9 +166,9 @@ int main(){
     model.putG("g4", new Linear(o_size, 1024));
     model.putG("g_softmax_cross_entoropy", new SoftmaxCrossEntropy());
     model.putG("g_softmax", new Softmax());
-    model.putG("g_batch_norm1", new BatchNorm(28*28*32, 0.999));
-    model.putG("g_batch_norm2", new BatchNorm(14*14*64, 0.999));
-    model.putG("g_batch_norm3", new BatchNorm(1024, 0.999));
+    //model.putG("g_batch_norm1", new BatchNorm(28*28*32, 0.999));
+    //model.putG("g_batch_norm2", new BatchNorm(14*14*64, 0.999));
+    //model.putG("g_batch_norm3", new BatchNorm(1024, 0.999));
 
     // outputDim = 1 + (inputDim + 2*pad - filterDim)/convolutionStride
     model.putG("g_conv2d1", new Conv2D(batchSize, 1, 28, 28, 5, 32));
@@ -207,7 +207,7 @@ int main(){
             asMatrix(x1, X);
             asMatrix(d, D);
 
-            PVariable h4= forward_one_step(model, x1);
+            PVariable h4 = forward_one_step(model, x1);
 
             PVariable loss = model.G("g_softmax_cross_entoropy")->forward(h4, d);
 

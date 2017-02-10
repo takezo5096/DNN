@@ -1330,7 +1330,6 @@ PVariable FunctionBatchNorm::forward(vector<PVariable> &inputs, vector<PVariable
     //step 1
     if (is_train) rmu = 1.0 / N * x->data.batch_sum();
     else rmu = this->x_mean->data;
-
     cuMat mu = rmu.vec_to_mat(N);
 
     //step 2
@@ -1353,23 +1352,12 @@ PVariable FunctionBatchNorm::forward(vector<PVariable> &inputs, vector<PVariable
     //step 7
     xhat = xmu * tmp;
 
-    //cout << gamma->data;
-
     //step 8
     cuMat gammax = xhat.mat_vec_mul(gamma->data, 0);
 
-
-    PVariable r = PVariable(obj_construct(this, x->data.rows, x->data.cols), obj_destroy);
-
     //step 9
+    PVariable r = PVariable(obj_construct(this, x->data.rows, x->data.cols), obj_destroy);
     r->data = gammax + ones.mat_vec_mul(beta->data, 0);
-    /*
-    if (is_train) r->data = gammax + ones.mat_vec_mul(beta->data, 0);
-    else{
-        tmp = gamma->data * ivar;
-        r->data = x->data.mat_vec_mul(tmp, 0);
-        r->data += (beta->data - rmu * tmp).vec_to_mat(N);
-    }*/
 
     return r;
 }
@@ -1446,140 +1434,39 @@ FunctionConv2D::~FunctionConv2D(){
 
 cuMat FunctionConv2D::forward_one(cuMat &data){
 
-    //w->data.dot_plus(x->data, r->data);
-
-
     int output_dim_w, output_dim_h;
 
-    //cout << "data" << endl;
-    //cout << data;
-
-    //cout << "start im2col" << endl;
     cuMat stacked = data.im2col(w_size, h_size, channel_num, filter_size, filter_size, 1, 1, 2, 2, 2, 2, output_dim_w, output_dim_h);
-    // stacked = [outputDimW * outputDimH, filter_size_w * filter_size_h * channel_num]
-    //cout << "stacked" << endl;
-    //cout << stacked;
-    //exit(1);
-    //cout << "outputDim:" << output_dim_w << " " << output_dim_h << endl;
-    //cout << "w->data" << endl;
-    //cout << w->data;
-    //exit(1);
 
     cols.push_back(stacked);
 
-
-    /* w defination
-     w = new Variable(filter_num, filter_size * filter_size * channel_num);
-     stacked defination
-     cuMat stacked(outputDimW * outputDimH, filter_size_w*filter_size_h * channel_num);
-
-    */
-
-    //cuMat r = stacked.dot(w->data);
-    //cuMat r = w->data.dot(stacked.transpose());
     cuMat r = w->data.dot(stacked.transpose());
-
-    //cout << "r" << endl;
-    //cout << r;
-    //cout << "b->data" << endl;
-    //cout << b->data;
-
 
     cuMat ones(1, r.cols);
     ones.ones();
-    //==========================  r += b->data.dot(ones);
-    //exit(1);
-
 
     r = r.transpose();
-    //cout << "r" << endl;
-    //cout << r;
-    //exit(1);
 
-    //cuMat r_array(r.rows * r.cols, 1);
-    //r_array.memSetDevice(r.mDevice);
-
-
-
-    //cout << r_array;
-    //exit(1);
-    //return r_array;
     return r;
 }
 
 cuMat FunctionConv2D::backward_one(cuMat &col, cuMat &p_grad_raw) {
 
-    /*
-     w->data.transpose_dot_plus(p_grad, x->grad);
-
-     p_grad.dot_transpose_plus(x->data, w->grad);
-
-     p_grad.dot_transpose_plus(i1, b->grad);
-     */
-
-
-
-    //w->data.transpose_dot_plus(p_grad, x->grad);
-    //p_grad.dot_transpose_plus(x->data, w->grad);
-
-/*
-
-
-    cout << "w->grad" << endl;
-    cout << w->grad;
-    cout << "w->data" << endl;
-    cout << w->data;
-*/
-
-    //cout << "w->data" << endl;
-    //cout << w->data;
-
-    //cout << "p_grad" << endl;
-    //cout << p_grad;
-    //exit(1);
-    //cout << "col" << endl;
-    //cout << col;
-
     cuMat p_grad = p_grad_raw.transpose();
-
 
     cuMat p_grad_mat(filter_num, outputDim_w * outputDim_h);
 
     p_grad_mat.memSetDevice(p_grad.mDevice);
-    //cout << "p_grad_mat" << endl;
-    //cout << p_grad_mat;
-    //exit(1);
-    w->grad += p_grad_mat.dot(col);
 
-    //cout << "w->grad" << endl;
-    //cout << w->grad;
-    //exit(1);
+    w->grad += p_grad_mat.dot(col);
 
     cuMat ones(p_grad_mat.cols, 1);
     ones.ones();
-    //cout << "p_grad_mat" << endl;
-    //cout << p_grad_mat;
-    //cout << "ones" << endl;
-    //cout << ones;
-    //cout << "b->grad" << endl;
-    //cout << b->grad;
-    //=================================b->grad += p_grad_mat.dot(ones);
-    //cout << b->grad;
-    //exit(1);
 
-    //cuMat dcol = p_grad_mat.dot(w->data.transpose());
-    //cuMat dcol = w->data.transpose().dot(p_grad_mat.transpose());
-    //cuMat dcol = p_grad_mat.transpose().dot(w->data);
     cuMat dcol = w->data.transpose().dot(p_grad_mat);
-    //exit(1);
 
-    //cout << "dcol" << endl;
-    //cout << dcol;
-    //exit(1);
     cuMat dx = dcol.col2im(w_size, h_size, channel_num, filter_size, filter_size, 1, 1, 2, 2, 2, 2);
-    //cout << "dx" << endl;
-    //cout << dx << endl;
-    //exit(1);
+
     return dx;
 
 }
@@ -1599,74 +1486,39 @@ PVariable FunctionConv2D::forward(vector<PVariable> &inputs, vector<PVariable> &
 
     PVariable r = PVariable(obj_construct(this, filter_num * outputDim_w * outputDim_h, batch_num), obj_destroy);
 
-    //cout << "data" << endl;
-    //cout << x->data;
-    //exit(1);
     for(int i=0; i<batch_num; i++) {
         int data_index = i*(channel_num * w_size * h_size);
         float *one_m = x->data.mDevice + data_index;
         cuMat one_m_dev(channel_num * w_size * h_size, 1);
         one_m_dev.memSetDevice(one_m);
-        //cout << "loop:" << i << " " << one_m_dev;
-        //exit(1);
         cuMat r_array = forward_one(one_m_dev);
-        //exit(1);
-        //cout << "r_array" << endl;
-        //cout << r_array;
-
-        //exit(1);
         r->data.memSetDeviceCol(r_array.mDevice, i);
-        //r->data.memSetDeviceRow(r_array.mDevice, i);
     }
-
-    //cout << r->data;
-    //exit(1);
 
     return r;
 }
 
 void FunctionConv2D::backward(cuMat &p_grad, vector<PVariable> &inputs, vector<PVariable> &outputs) {
 
-    //cout << "FunctionConv2D::backward p_grad" << endl;
-    //cout << p_grad;
-
     PVariable x = inputs[0];
 
-
-    //PVariable r = PVariable(obj_construct(NULL, channel_num * w_size * h_size, batch_num), obj_destroy);
     cuMat dx(channel_num * w_size * h_size, batch_num);
 
-
-    //cout << "data" << endl;
-    //cout << data;
     for(int i=0; i<batch_num; i++) {
 
         int data_index = i*(filter_num * outputDim_w * outputDim_h);
 
         float *p_grad_one = p_grad.mDevice + data_index;
 
-        //cuMat p_grad_one_dev(filter_num * outputDim_w * outputDim_h, 1);
         cuMat p_grad_one_dev(outputDim_w * outputDim_h, filter_num);
         p_grad_one_dev.memSetDevice(p_grad_one);
-
-        //cout << p_grad_one_dev;
-        //exit(1);
 
         cuMat r_array = backward_one(cols[i], p_grad_one_dev);
 
         dx.memSetDeviceCol(r_array.mDevice, i);
-        //r->data.memSetDeviceRow(r_array.mDevice, i);
     }
-
-    //cout << x->grad;
-    //cout << r->grad;
-    //exit(1);
-
     x->grad += dx;
-
 }
-
-// float a[n0][n1][n2] の a[i][j][k] はポインターで表すと *(a+n0*n1*i+n1*j+k)
 
 
 FunctionPooling::FunctionPooling(int width, int height, int depth, int windowWidth, int windowHeight){
@@ -1686,28 +1538,17 @@ PVariable FunctionPooling::forward(vector<PVariable> &inputs, vector<PVariable> 
 
     int batch_num = x->data.cols;
 
-
     //* according to the cuDNN Library reference, get pooling size as followed:
     //* outputDim = 1 + (inputDim + 2*padding - windowDim)/poolingStride;
 
     int pooled_w = 1 + (width + (pad+pad) - windowWidth)/stride;
     int pooled_h = 1 + (height + (pad+pad) - windowHeight)/stride;
 
-    //cout << "pooled_w:" << pooled_w << endl;
-
     PVariable r = PVariable(obj_construct(this, depth * pooled_w * pooled_h, batch_num), obj_destroy);
 
     cuMat pooled = x->data.pooling(batch_num, width, height, depth, windowWidth, windowHeight, stride, stride, pad, pad, pad, pad);
 
     r->data = pooled;
-
-    //cout << "r->data" << endl;
-    //cout << r->data;
-
-    //cout << "pooled" << endl;
-    //cout << pooled;
-
-    //cout << "FunctionPooling::forward end =================" << endl;
 
     return r;
 }
@@ -1724,8 +1565,6 @@ void FunctionPooling::backward(cuMat &p_grad, vector<PVariable> &inputs, vector<
 
     int pooled_w = 1 + (width + (pad+pad) - windowWidth)/stride;
     int pooled_h = 1 + (height + (pad+pad) - windowHeight)/stride;
-
-    //cuMat dxr(depth * width * height, batch_num);
 
     cuMat dxr = x->data.pooling_backward(batch_num, p_grad.mDevice, width, height, depth, windowWidth, windowHeight, stride, stride, pad, pad, pad, pad);
 

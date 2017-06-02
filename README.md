@@ -3,7 +3,7 @@ cuMatディレクトリが同列にあることを前提
 ```bash
 cp test.cpp.[処理の種類]　test.cpp
 make
-export LD_LIBRARY_PATH=../cuMat$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../cuMat
 ./test
 ```
 

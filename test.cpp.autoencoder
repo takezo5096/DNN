@@ -275,6 +275,7 @@ int main(){
             }*/
         }
 
+        /*
         cuMat tmp_image = ((Linear *)model.G("slinear"))->w->data.transpose();
         tmp_image.toHostArray();
         //cout << tmp_image.rows << ", " << tmp_image.cols << endl;
@@ -282,7 +283,7 @@ int main(){
             stringstream png_name;
             png_name << "./images/hoge_" << i << ".png";
             col2png(png_name.str(), tmp_image.mHost + i*28*28, 28, 28, 255);
-        }
+        }*/
 
 
 

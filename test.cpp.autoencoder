@@ -264,6 +264,7 @@ int main(){
 
             model.unchain();
 
+            /*
             if (i<10) {
                 stringstream png_name, png_name_org;
                 png_name_org << "./images/mnist_org" << i << ".png";
@@ -271,7 +272,7 @@ int main(){
                 h3->data.toHostArray();
                 col2png(png_name_org.str(), X + 28 * 28, 28, 28, 255);
                 col2png(png_name.str(), h3->data.mHost + 28 * 28, 28, 28, 255);
-            }
+            }*/
         }
 
         cuMat tmp_image = ((Linear *)model.G("slinear"))->w->data.transpose();

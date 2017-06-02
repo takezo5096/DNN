@@ -15,6 +15,8 @@ class Dataset {
 public:
     void standrize(vector<vector<float> > *s);
 
+    void normalize(vector<vector<float> > *s, float max);
+
     void calcSTD(vector<float> data, float &mean, float &std);
 
     void createMiniBatch(vector<vector<float> >&s, vector<float>&d, float *X,

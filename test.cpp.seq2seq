@@ -131,7 +131,7 @@ PVariable cal_attention_vector(PVariable h, vector<PVariable> src_hidden_states)
     for(int i=0; i<src_hidden_states.size(); i++){
         cuMat alpha = cal_attention_score(h, src_hidden_states[i], total_similarity_values);
 
-        a->data += src_hidden_states[i]->data.mat_vec_mul(alpha);
+        a->data += src_hidden_states[i]->data.mat_vec_mul(alpha, 1);
     }
 
     return a;
@@ -194,12 +194,6 @@ vector<PVariable> encoder(vector<vector<int>> &seqs_ids_ja, WordEmbed *wd_ja, in
 
 
     //connect ENCODER and DECODER
-    //((FullLSTM *)model.G("lstm_ja"))->is_last_backward = true;
-    //((FullLSTM *)model.G("lstm_en"))->h = ((FullLSTM *)model.G("lstm_ja"))->h;
-    //((FullLSTM *)model.G("lstm_en"))->h->is_last_backward = &((FullLSTM *)model.G("lstm_en"))->is_last_backward;
-    //((GRU *)model.G("lstm_ja"))->is_last_backward = true;
-    //((GRU *)model.G("lstm_en"))->h = ((GRU *)model.G("lstm_ja"))->h;
-    //((GRU *)model.G("lstm_en"))->h->is_last_backward = &((GRU *)model.G("lstm_en"))->is_last_backward;
     ((FullLSTM2 *)model.G("lstm_ja"))->is_last_backward = true;
     ((FullLSTM2 *)model.G("lstm_en"))->h = ((FullLSTM2 *)model.G("lstm_ja"))->h;
     ((FullLSTM2 *)model.G("lstm_en"))->h->is_last_backward = &((FullLSTM2 *)model.G("lstm_en"))->is_last_backward;
@@ -307,6 +301,7 @@ PVariable forward_one_step(vector<vector<int>> &seqs_ids_ja, vector<vector<int>>
     }
     toPVariable(t, data_en);
 
+
     for (int j = 0; j < max_vocab_size_en; j++) {
 
         PVariable embed_en = model.G("embed_en")->forward(t);
@@ -370,24 +365,39 @@ int main(){
 
     int batch_size = 64;
 
-    int vocab_size = 1000;
+    /*
+     int vocab_size = 1000;
+    int embed_size = 200;
+    int h_size = 400;
+    */
+    int vocab_size = 10000;
+    int embed_size = 200;
+    int h_size = 400;
 
-    int embed_size = 100;
-    int h_size = 200;
 
     float clip_grad_threshold = 0;
     float learning_rate = 0.001; //ADAM
     //float learning_rate = 0.0001; //SDG
     //float learning_rate = 0.01; //ADAGRAD
 
-    int epoch = 300;
+    //int epoch = 300;
+    int epoch = 100;
 
 
-    WordEmbed *wd_ja = load_data("train10000.ja", vocab_size, false, false);
-    WordEmbed *wd_en = load_data("train10000.en", vocab_size, true, false);
+    //WordEmbed *wd_ja = load_data("train10000.ja", vocab_size, false, false);
+    //WordEmbed *wd_en = load_data("train10000.en", vocab_size, true, false);
+    //WordEmbed *wd_ja = load_data("wikipedia_kyoto_ROD.ja", vocab_size, false, false);
+    //WordEmbed *wd_en = load_data("wikipedia_kyoto_ROD.en", vocab_size, true, false);
+    WordEmbed *wd_ja = load_data("tanaka_corpus_j_10000.txt", vocab_size, false, false);
+    WordEmbed *wd_en = load_data("tanaka_corpus_e_10000.txt", vocab_size, true, false);
 
     vector<vector<int>> seqs_ids_ja = wd_ja->getSequencesIds();
     vector<vector<int>> seqs_ids_en = wd_en->getSequencesIds();
+
+    if (seqs_ids_ja.size() != seqs_ids_en.size()){
+        cout << "no match seq numbers:" << "ja:" << seqs_ids_ja.size() << " en:" << seqs_ids_en.size() << endl;
+        exit(1);
+    }
 
     cout << "ja word_count:" << wd_ja->getWordCount() << endl;
     cout << "en word_count:" << wd_en->getWordCount() << endl;
@@ -395,18 +405,12 @@ int main(){
 
     model.putG("embed_ja", new Linear(embed_size, vocab_size));
     model.putG("tanh_ja", new Tanh());
-    //model.putG("lstm_ja", new FullLSTM(h_size, embed_size));
-    //model.putG("lstm_ja", new GRU(h_size, embed_size));
     model.putG("lstm_ja", new FullLSTM2(h_size, embed_size));
-    //model.putG("tanh_ja2", new Tanh());
 
 
     model.putG("embed_en", new Linear(embed_size, vocab_size));
     model.putG("tanh_en", new Tanh());
-    //model.putG("lstm_en", new FullLSTM(h_size, embed_size));
-    //model.putG("lstm_en", new GRU(h_size, embed_size));
     model.putG("lstm_en", new FullLSTM2(h_size, embed_size));
-    //model.putG("tanh_en2", new Tanh());
 
 
     model.putG("linear_in1", new Linear(embed_size, h_size));
@@ -426,11 +430,7 @@ int main(){
     model.putG("attention_plus", new Plus());
     model.putG("attention_linear_tanh", new Tanh());
 
-    //model.putG("input_feeding_linear", new Linear(vocab_size, vocab_size, false));
-    //model.putG("input_feeding_plus", new Plus());
-
     ///////////////////////
-
 
 
 
@@ -443,7 +443,9 @@ int main(){
     int step = seqs_ids_ja.size() / batch_size;
     cout << "seqs_ids_ja.size():" << seqs_ids_ja.size() << " step:" << step << endl;
 
-    sortSeqs(seqs_ids_ja, seqs_ids_en);
+    //sortSeqs(seqs_ids_ja, seqs_ids_en);
+
+    float loss_total = 0;
 
     for(int i=0; i<epoch; i++) {
 
@@ -451,6 +453,7 @@ int main(){
 
         for(int k=0; k<step; k++) {
             float loss = 0;
+
             PVariable loss_sum = forward_one_step(seqs_ids_ja, seqs_ids_en, wd_ja, wd_en, batch_size, vocab_size, k, &loss);
 
             loss_sum->backward();
@@ -465,8 +468,16 @@ int main(){
             ((FullLSTM2 *) model.G("lstm_ja"))->reset_state();
             ((FullLSTM2 *) model.G("lstm_en"))->reset_state();
 
-            float cur_perp = exp(loss);
-            cout << "epoch:" << (i+1) << "/" << epoch << " perplexity:" << cur_perp << " loss:" << loss << endl;
+            loss_total += loss;
+
+
+            if (k!=0 && k % 10 == 0) {
+                float test_perp = exp(((float)loss_total)/10.0);
+                float test_loss = ((float)loss_total)/10.0;
+                cout << "epoch:" << (i + 1) << "/" << epoch << " step:" << k
+                     << " perplexity:" << test_perp << " loss:" << test_loss << endl;
+                loss_total = 0;
+            }
         }
     }
 
@@ -479,7 +490,7 @@ int main(){
     //model.load("seq2seq.model");
 
     cout << "predict" << endl;
-    for (int target_seq_id=0; target_seq_id<10; target_seq_id++) {
+    for (int target_seq_id=0; target_seq_id<300; target_seq_id++) {
         vector<int> predict_word_ids = predict(seqs_ids_ja, seqs_ids_en, wd_ja, wd_en, vocab_size, target_seq_id);
 
         vector<int> word_ids_ja = seqs_ids_ja[target_seq_id];

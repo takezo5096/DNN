@@ -14,6 +14,7 @@
 #include <random>
 //#include <chrono>
 #include <sstream>
+#include <map>
 
 #include <boost/serialization/export.hpp>
 #include <boost/serialization/serialization.hpp>
@@ -55,6 +56,7 @@
 #include "mat_inverse_d_kernel.h"
 #include "batch_sum_kernel.h"
 #include "vec_to_mat_kernel.h"
+#include "slice_rows_kernel.h"
 
 #include "im2col.h"
 #include "pooling.h"
@@ -117,6 +119,7 @@ public:
 };
 
 extern MallocCounter mallocCounter;
+
 
 class cuMat {
 
@@ -220,21 +223,19 @@ public:
             cudaMemset(mDevice, 0x00, rows * cols * sizeof(*mDevice));
             cudaThreadSynchronize();
             mallocCounter.up();
+
         }
     }
 
     void del_matrix() {
-        //cout << "del_matrix" << endl;
         if (mDevice != NULL){
             cudaFree(mDevice);
             mDevice = NULL;
             mallocCounter.down();
-            //cout << "cuMat del_matrix 1" << endl;
         }
         if (mHost != NULL){
             free(mHost);
             mHost = NULL;
-            //cout << "cuMat del_matrix 2" << endl;
         }
         cudaThreadSynchronize();
     }
@@ -242,14 +243,14 @@ public:
     void memHostToDevice() {
         cudaError_t error = cudaMemcpy(mDevice, mHost,
                 rows * cols * sizeof(*mDevice), cudaMemcpyHostToDevice);
-        if (error != cudaSuccess) printf("cudaMemcpy error\n");
+        if (error != cudaSuccess) printf("memHostToDevice cudaMemcpy error\n");
     }
     void memDeviceToHost() {
         if (mHost == NULL) this->memMallocHost();
         cudaError_t error = cudaMemcpy(mHost, mDevice,
                 rows * cols * sizeof(*mDevice), cudaMemcpyDeviceToHost);
         if (error != cudaSuccess)
-            printf("cudaMemcpy error\n");
+            printf("memDeviceToHost cudaMemcpy error\n");
     }
     void memSetHost(int i, int j, float val) {
         if (mHost == NULL)
@@ -258,28 +259,33 @@ public:
         mHost[IDX2F(i, j, rows)] = val;
     }
     void memSetHost(float *v) {
+        if (mHost == NULL)
+            this->memMallocHost();
+        if (mDevice == NULL)
+            cout << "memSetHost mDevice is null" << endl;
+
         cudaError_t error = cudaMemcpy(mDevice, v,
                 rows * cols * sizeof(*mDevice), cudaMemcpyHostToDevice);
         if (error != cudaSuccess)
-            printf("cudaMemcpy error\n");
+            printf("memSetHost cudaMemcpy error\n");
     }
     void memSetDevice(float *v) {
         cudaError_t error = cudaMemcpy(mDevice, v,
                                        rows * cols * sizeof(*mDevice), cudaMemcpyDeviceToDevice);
         if (error != cudaSuccess)
-            printf("cudaMemcpy error\n");
+            printf("memSetDevice cudaMemcpy error\n");
     }
     void memSetDeviceRow(float *v, int row_index) {
-        cudaError_t error = cudaMemcpy(mDevice + row_index * rows, v,
+        cudaError_t error = cudaMemcpy(mDevice + row_index * cols, v,
                                        cols * sizeof(float), cudaMemcpyDeviceToDevice);
         if (error != cudaSuccess)
-            printf("cudaMemcpy error\n");
+            printf("memSetDeviceRow cudaMemcpy error\n");
     }
     void memSetDeviceCol(float *v, int col_index) {
         cudaError_t error = cudaMemcpy(mDevice + col_index * rows, v,
                                        rows * sizeof(float), cudaMemcpyDeviceToDevice);
         if (error != cudaSuccess)
-            printf("cudaMemcpy error\n");
+            printf("memSetDeviceCol cudaMemcpy error\n");
     }
 
 
@@ -310,6 +316,18 @@ public:
     }
 
 
+    cuMat sliceRows(int offset, int len) {
+        cuMat r(len, this->cols);
+
+        slice_rows_kernel_exec(mDevice, r.mDevice, cols, rows, offset, len);
+
+        return r;
+    }
+
+    void joinRows(cuMat &a, int offset, int len){
+        join_rows_kernel_exec(a.mDevice, mDevice, cols, rows, offset, len);
+    }
+    /*
     cuMat sliceRows(int offset, int len){
         this->memDeviceToHost();
 
@@ -325,6 +343,7 @@ public:
         r.memHostToDevice();
         return r;
     }
+
     void joinRows(cuMat &a, int offset, int len){
         this->memDeviceToHost();
         a.memDeviceToHost();
@@ -337,7 +356,7 @@ public:
         }
         memHostToDevice();
     }
-
+    */
 
     cuMat &operator=(const cuMat &a) {
         //cout << "cuMat operator=" << endl;
@@ -1020,8 +1039,8 @@ public:
         * Each dimension h and w of the output images is computed as followed:
         * outputDim = 1 + (inputDim + 2*pad - filterDim)/convolutionStride
         */
-        outputDimW = 1 + (w_size + (pad_left+pad_right) - filter_size_w)/1;
-        outputDimH = 1 + (h_size + (pad_top+pad_bottom) - filter_size_h)/1;
+        outputDimW = 1 + (w_size + (pad_left+pad_right) - filter_size_w)/stride_x;
+        outputDimH = 1 + (h_size + (pad_top+pad_bottom) - filter_size_h)/stride_y;
 
         cuMat stacked(outputDimW * outputDimH, filter_size_w*filter_size_h * channel_num);
         //cuMat stacked(filter_size_w*filter_size_h * channel_num, outputDimW * outputDimH);
@@ -1042,7 +1061,8 @@ public:
                 pad_top, //size_t padTop,
                 pad_bottom //size_t padBottom
         );
-         */
+        */
+
         im2col_ongpu(mDevice,
                      channel_num, w_size, w_size,
                      filter_size_w, stride_x, pad_left, stacked.mDevice);
@@ -1053,7 +1073,8 @@ public:
     cuMat col2im(int w_size, int h_size, int channel_num, int filter_size_w, int filter_size_h,
                  int stride_x, int stride_y, int pad_left, int pad_right, int pad_top, int pad_bottom){
 
-        cuMat dest(channel_num * w_size * h_size, 1);
+        //cuMat dest(channel_num, w_size * h_size);
+        cuMat dest(w_size * h_size, channel_num);
 
         /*
         col2im_gpu(dest.mDevice,
@@ -1070,11 +1091,13 @@ public:
                    pad_top, //size_t padTop,
                    pad_bottom //size_t padBottom
         );
-         */
+        */
+
 
         col2im_ongpu(mDevice,
                      channel_num, w_size, w_size,
                      filter_size_w, stride_x, pad_left, dest.mDevice);
+
         return dest;
     }
 
@@ -1090,6 +1113,7 @@ public:
         int pooled_h = 1 + (height + (padTop+padBottom) - windowHeight)/strideY;
 
         cuMat pooled(pooled_w * pooled_h * depth, batch_size);
+        //cuMat pooled(batch_size, pooled_w * pooled_h * depth);
 
         pooling_gpu(pooled.mDevice,
                          mDevice,
@@ -1112,6 +1136,7 @@ public:
                            int strideX, int strideY, int padLeft, int padRight, int padTop, int padBottom){
 
         cuMat dzdx(width * height * depth, batch_size);
+        //cuMat dzdx(batch_size, width * height * depth);
 
         poolingBackward_gpu(dzdx.mDevice,
                             mDevice,

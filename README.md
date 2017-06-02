@@ -12,6 +12,6 @@ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../cuMat
 * cnn: 畳み込みニューラルネットワーク
 * iris: IRISデータセットによる層状パーセプトロン
 * lstm.sin:LSTMによるsin波再現
-* mlp:層状パーセプトロン
+* mlp:MNISTによる層状パーセプトロン
 * number:LSTMによる数当て
 * seq2seq:LSTMによる翻訳モデル

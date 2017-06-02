@@ -80,7 +80,7 @@ void Optimizer::zero_grads() {
         UpdateParams *up = updateParams.at(i);
         for(int j=0; j < up->params.size(); j++){
             Variable *v = up->params.at(j);
-            v->grad *= 0;
+            v->grad *= 0.0;
 
         }
     }
@@ -118,7 +118,7 @@ void Optimizer::update() {
             //cout << v->grad;
 
             //changed v->grad to v->grad means (v->grad / batch_size )
-            v->grad = 1./v->grad.cols * v->grad;
+            //v->grad = 1./v->grad.cols * v->grad;
 
 
             clip_grad(v);

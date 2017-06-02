@@ -16,6 +16,45 @@
 using namespace std;
 
 
+int count_function = 0;
+int count_variable = 0;
+
+map<Variable *, bool> variable_pool;
+
+Variable *variable_construct(int rows, int cols){
+
+    count_variable++;
+
+    for(auto itr = variable_pool.begin(); itr != variable_pool.end(); ++itr) {
+        if (!itr->second){
+            Variable *v = (Variable *)itr->first;
+            if (v->data.rows == rows && v->data.cols == cols){
+                v->zeros();
+                v->creator = NULL;
+                variable_pool[v] = true;
+
+                return v;
+            }
+        }
+    }
+
+    Variable *r = new Variable(rows, cols);
+    variable_pool[r] = true;
+
+    return r;
+}
+void variable_destroy(Variable *ptr){
+
+    count_variable--;
+
+    variable_pool[ptr] = false;
+    if (variable_pool.size() > 4000){
+        variable_pool.erase(ptr);
+        delete ptr;
+    }
+}
+
+
 
 
 //global variable for id
@@ -183,7 +222,7 @@ void Variable::backward(Variable *v) {
 
     if (v->creator != NULL) {
 
-        //cout << "backward name1:" << v->creator->name << endl;
+        //cout << "backward name1:" << v->creator->name << " v->forward_count:" << v->forward_count << endl;
 
 
         if (v->last_opt != NULL && v->opt == *v->last_opt){
@@ -193,20 +232,27 @@ void Variable::backward(Variable *v) {
 
         if (v->forward_count >0) v->forward_count--;
 
+        //cout << "backward name2:" << v->creator->name << endl;
+
         if (v->is_last_backward != NULL && *v->is_last_backward == false) return;
+        //cout << "backward name3:" << v->creator->name << " v->forward_count:" << v->forward_count <<  endl;
 
         if (v->forward_count != 0) return;
 
+        //cout << "backward name4:" << v->creator->name << endl;
 
         v->creator->backward(v->grad);
 
-        //cout << "backward name2:" << v->creator->name << endl;
+        //cout << "backward name5:" << v->creator->name << endl;
 
         for (int i = 0; i< v->creator->inputs.size(); i++) {
 
             PVariable nv = v->creator->inputs[i];
 
-            this->backward(nv.get());
+            if (nv->isGetGrad) {
+                //cout << nv.get()->creator->name << endl;
+                this->backward(nv.get());
+            }
         }
     }
     else{
@@ -271,6 +317,22 @@ void Variable::randoms(float m, float a) {
     for (int i = 0; i < data.rows; i++) {
         for (int j = 0; j < data.cols; j++) {
             data.memSetHost(i, j, initd1(mt));
+        }
+    }
+    data.memHostToDevice();
+}
+
+
+void Variable::binominal_randoms(float ratio){
+    random_device rd;
+    mt19937 mt(rd());
+    uniform_real_distribution<float> initd1(0., 1.);
+
+    for (int i = 0; i < data.rows; i++) {
+        for (int j = 0; j < data.cols; j++) {
+            float h = 1.0;
+            if (initd1(mt) < ratio) h = 0.0;
+            data.memSetHost(i, j, h);
         }
     }
     data.memHostToDevice();

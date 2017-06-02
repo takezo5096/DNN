@@ -7,15 +7,7 @@
 // Created by 藤田 毅 on 2016/10/14.
 //
 
-#include <random>
-#include <vector>
-#include <sstream>
 
-#include <boost/serialization/export.hpp>
-#include <boost/serialization/serialization.hpp>
-
-#ifndef DNN_GRAPH_H
-#define DNN_GRAPH_H
 
 
 #include "graph.h"
@@ -23,8 +15,8 @@
 using namespace std;
 
 
-extern Variable *obj_construct(Function *f, int rows, int cols);
-extern void obj_destroy(Variable *ptr);
+//extern Variable *obj_construct(Function *f, int rows, int cols);
+//extern void obj_destroy(Variable *ptr);
 
 
 
@@ -45,6 +37,11 @@ void Graph::remove_chain(){
     funcs_chain.clear();
 }
 
+vector<Variable *> Graph::getParams() {
+    vector < Variable * > params;
+
+    return params;
+}
 
 PVariable Graph::forward(PVariable input) {
     //cout << "Graph forward start" << endl;
@@ -60,18 +57,20 @@ void Graph::zero_grads() {}
 void Graph::reset_state() {}
 
 
+void Graph::toHostArray(){}
+void Graph::fromHostArray(){}
+
+
 
 Linear::Linear() : Graph() {
 
 }
-
 Linear::Linear(int output_size, int input_size, bool no_bias) : Graph() {
-
 
         noBias = no_bias;
 
         this->w = new Variable(output_size, input_size);
-        this->w->randoms(0., sqrt((1./(float)input_size)));
+        this->w->randoms(0., sqrt(2.0/((float)input_size)));
 
         if (!noBias){
             this->b = new Variable(output_size, 1);
@@ -79,19 +78,38 @@ Linear::Linear(int output_size, int input_size, bool no_bias) : Graph() {
 
     }
 
+Linear::Linear(Variable *w, bool isTranspose) : Graph() {
+    this->w = w;
+    this->isTranpose = isTranspose;
+
+    int output_size = w->data.rows;
+    if (isTranspose){
+        output_size = w->data.cols;
+    }
+    this->b = new Variable(output_size, 1);
+}
+
 Linear::~Linear(){
     if (this->w != NULL) delete this->w;
     if (this->b != NULL) delete this->b;
 }
 
 
+vector<Variable *> Linear::getParams(){
+    vector<Variable *> params;
+    params.push_back(w);
+    if (!noBias) params.push_back(b);
+
+    return params;
+}
+
 PVariable Linear::forward(PVariable v){
 
     Function *f;
     if (noBias)
-        f = new FunctionLinear(w);
+        f = new FunctionLinear(w, isTranpose);
     else
-        f = new FunctionLinear(w, b);
+        f = new FunctionLinear(w, b, isTranpose);
 
     PFunction pf(f);
 
@@ -118,6 +136,101 @@ void Linear::fromHostArray(){
 PVariable Linear::forward(PVariable x, PVariable t){}
 
 
+// SparseLinear ------------------------------------------
+SparseLinear::SparseLinear() : Graph() {
+
+}
+SparseLinear::SparseLinear(int output_size, int input_size, bool no_bias, float g, float beta, float p) : Graph() {
+
+    noBias = no_bias;
+
+    this->w = new Variable(output_size, input_size);
+    this->w->randoms(0., sqrt(1.0/((float)input_size)));
+
+    if (!noBias){
+        this->b = new Variable(output_size, 1);
+    }
+
+    this->g = g;
+    this->beta = beta;
+    this->p = p;
+
+
+}
+
+SparseLinear::~SparseLinear(){
+    if (this->w != NULL) delete this->w;
+    if (this->b != NULL) delete this->b;
+}
+
+
+vector<Variable *> SparseLinear::getParams(){
+    vector<Variable *> params;
+    params.push_back(w);
+    if (!noBias) params.push_back(b);
+
+    return params;
+}
+
+PVariable SparseLinear::forward(PVariable v){
+
+    if (this->ph == NULL){
+        this->ph = new Variable(this->w->data.rows, v->data.cols);
+    }
+
+    Function *f;
+    if (noBias)
+        f = new FunctionSparseLinear(w, beta, p, ph);
+    else
+        f = new FunctionSparseLinear(w, b, beta, p, ph);
+    PFunction pf(f);
+    funcs_chain.push_back(pf);
+
+    /*
+    Function *f_sig = new FunctionReLU();
+    PFunction p_f_sig(f_sig);
+    funcs_chain.push_back(p_f_sig);
+
+    PVariable r_tmp = pf->forward(v);
+
+    PVariable r = p_f_sig->forward(r_tmp);
+    */
+    PVariable r = pf->forward(v);
+
+    cuMat np = 1.0/v->data.rows * r->data.batch_sum().vec_to_mat(v->data.cols);
+
+    ph->data = g * ph->data + (1.0-g) * np;
+
+    return r;
+}
+
+void SparseLinear::zero_grads() {
+    w->zero_grad();
+    if (!noBias) b->zero_grad();
+}
+
+void SparseLinear::toHostArray(){
+    w->data.toHostArray();
+    if (!noBias) b->data.toHostArray();
+}
+void SparseLinear::fromHostArray(){
+    w->data.fromHostArray();
+    if (!noBias) b->data.fromHostArray();
+
+}
+
+PVariable SparseLinear::forward(PVariable x, PVariable t){}
+
+
+Sigmoid::Sigmoid() : Graph() {
+
+}
+PVariable Sigmoid::forward(PVariable v){
+    Function *f = new FunctionSigmoid();
+    PFunction pf(f);
+    funcs_chain.push_back(pf);
+    return pf->forward(v);
+}
 
 
 ReLU::ReLU() : Graph() {
@@ -154,6 +267,12 @@ PVariable PReLU::forward(PVariable v){
 
 PReLU::~PReLU(){
     if (a != NULL) delete a;
+}
+
+vector<Variable *> PReLU::getParams(){
+    vector<Variable *> params;
+    params.push_back(a);
+    return params;
 }
 
 void PReLU::toHostArray(){
@@ -207,10 +326,19 @@ Dropout::Dropout(float dropout_rate) : Graph() {
     this->dropout_rate = dropout_rate;
 }
 PVariable Dropout::forward(PVariable v){
+    if (this->is_train) {
         Function *f = new FunctionDropout(dropout_rate);
         PFunction pf(f);
         funcs_chain.push_back(pf);
         return pf->forward(v);
+    }
+    else{
+        return v;
+    }
+}
+
+void Dropout::isTrain(bool is_train){
+    this->is_train = is_train;
 }
 
 
@@ -268,6 +396,10 @@ PVariable Plus::forward(PVariable v1, PVariable v2) {
     return pf->forward(v1, v2);
 }
 
+
+Identity::Identity() : Graph() {
+
+}
 PVariable Identity::forward(PVariable v1) {
     Function *f = new FunctionIdentity();
     PFunction pf(f);
@@ -325,14 +457,18 @@ PVariable LSTM::forward(PVariable x) {
 
 
     if (c.get() == NULL || c->data.rows == 0 || c->data.cols != x->data.cols) {
-        c = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        //c = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        c = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
     }
     if (c_next.get() == NULL || c_next->data.rows ==0 || c_next->data.cols != x->data.cols) {
-        c_next = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        //c_next = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        c_next = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
+
     }
 
     if (h.get() == NULL || h->data.rows == 0 || h->data.cols != x->data.cols) {
-        h = PVariable(obj_construct(NULL, output_size * 4, x->data.cols), obj_destroy);
+        //h = PVariable(obj_construct(NULL, output_size * 4, x->data.cols), obj_destroy);
+        h = PVariable(variable_construct(output_size *4, x->data.cols), variable_destroy);
 
         h->opt = id;
 
@@ -500,43 +636,54 @@ PVariable FullLSTM::forward(PVariable x) {
 
 
     if (c.get() == NULL || c->data.rows == 0 || c->data.cols != x->data.cols) {
-        c = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        //c = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        c = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
     }
     if (c_next.get() == NULL || c_next->data.rows ==0 || c_next->data.cols != x->data.cols) {
-        c_next = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        //c_next = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        c_next = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
     }
 
     if (f.get() == NULL || f->data.rows == 0 || f->data.cols != x->data.cols) {
-        f = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        //f = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        f = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
     }
     if (f_next.get() == NULL || f_next->data.rows ==0 || f_next->data.cols != x->data.cols) {
-        f_next = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        //f_next = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        f_next = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
     }
 
     if (i.get() == NULL || i->data.rows == 0 || i->data.cols != x->data.cols) {
-        i = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        //i = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        i = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
     }
     if (i_next.get() == NULL || i_next->data.rows ==0 || i_next->data.cols != x->data.cols) {
-        i_next = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        //i_next = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        i_next = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
     }
 
     if (o.get() == NULL || o->data.rows == 0 || o->data.cols != x->data.cols) {
-        o = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        //o = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        o = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
     }
     if (o_next.get() == NULL || o_next->data.rows ==0 || o_next->data.cols != x->data.cols) {
-        o_next = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        //o_next = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        o_next = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
     }
 
     if (g.get() == NULL || g->data.rows == 0 || g->data.cols != x->data.cols) {
-        g = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        //g = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        g = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
     }
     if (g_next.get() == NULL || g_next->data.rows ==0 || g_next->data.cols != x->data.cols) {
-        g_next = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        //g_next = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        g_next = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
     }
 
 
     if (h.get() == NULL || h->data.rows == 0 || h->data.cols != x->data.cols) {
-        h = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        //h = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        h = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
         h->opt = id;
 
         last_opt = id;
@@ -825,6 +972,51 @@ FullLSTM2::~FullLSTM2() {
 
 }
 
+
+vector<Variable *> FullLSTM2::getParams(){
+    vector<Variable *> params;
+
+    params.push_back(f_c_w);
+    params.push_back(f_h_w);
+    params.push_back(f_x_w);
+    params.push_back(f_x_b);
+
+    params.push_back(i_c_w);
+    params.push_back(i_h_w);
+    params.push_back(i_x_w);
+    params.push_back(i_x_b);
+
+    params.push_back(o_c_w);
+    params.push_back(o_h_w);
+    params.push_back(o_x_w);
+    params.push_back(o_x_b);
+
+    params.push_back(g_h_w);
+    params.push_back(g_x_w);
+    params.push_back(g_x_b);
+
+    params.push_back(gamma_f);
+    params.push_back(gamma_i);
+    params.push_back(gamma_g);
+    params.push_back(gamma_o);
+    params.push_back(beta_f);
+    params.push_back(beta_i);
+    params.push_back(beta_g);
+    params.push_back(beta_o);
+
+    params.push_back(x_mean_f);
+    params.push_back(x_mean_i);
+    params.push_back(x_mean_g);
+    params.push_back(x_mean_o);
+    params.push_back(x_var_f);
+    params.push_back(x_var_i);
+    params.push_back(x_var_g);
+    params.push_back(x_var_o);
+
+    return params;
+}
+
+
 void FullLSTM2::set_train_status(bool status){
     is_train = status;
 }
@@ -898,12 +1090,14 @@ PVariable FullLSTM2::forward(PVariable x) {
 
 
     if (c.get() == NULL || c->data.rows == 0 || c->data.cols != x->data.cols) {
-        c = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        //c = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        c = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
     }
 
 
     if (h.get() == NULL || h->data.rows == 0 || h->data.cols != x->data.cols) {
-        h = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        //h = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        h = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
         h->opt = id;
 
         last_opt = id;
@@ -922,10 +1116,10 @@ PVariable FullLSTM2::forward(PVariable x) {
         // we chose algo of 2.
 
 
-        FunctionBatchNorm *f_batch_norm  = new FunctionBatchNorm(gamma_f, beta_f, x_mean_f, x_var_f);
-        FunctionBatchNorm *i_batch_norm  = new FunctionBatchNorm(gamma_i, beta_i, x_mean_i, x_var_i);
-        FunctionBatchNorm *g_batch_norm  = new FunctionBatchNorm(gamma_g, beta_g, x_mean_g, x_var_g);
-        FunctionBatchNorm *o_batch_norm  = new FunctionBatchNorm(gamma_o, beta_o, x_mean_o, x_var_o);
+        FunctionBatchNorm *f_batch_norm  = new FunctionBatchNorm(input_size, 1, gamma_f, beta_f, x_mean_f, x_var_f);
+        FunctionBatchNorm *i_batch_norm  = new FunctionBatchNorm(input_size, 1, gamma_i, beta_i, x_mean_i, x_var_i);
+        FunctionBatchNorm *g_batch_norm  = new FunctionBatchNorm(input_size, 1, gamma_g, beta_g, x_mean_g, x_var_g);
+        FunctionBatchNorm *o_batch_norm  = new FunctionBatchNorm(input_size, 1, gamma_o, beta_o, x_mean_o, x_var_o);
 
         f_batch_norm->is_train = this->is_train;
         i_batch_norm->is_train = this->is_train;
@@ -954,15 +1148,15 @@ PVariable FullLSTM2::forward(PVariable x) {
                 lam = 0.0;
                 is_first = false;
             }
-            x_mean_f->data = lam * x_mean_f->data + (1.0 - lam) * f_batch_norm->rmu;
-            x_mean_i->data = lam * x_mean_i->data + (1.0 - lam) * i_batch_norm->rmu;
-            x_mean_g->data = lam * x_mean_g->data + (1.0 - lam) * g_batch_norm->rmu;
-            x_mean_o->data = lam * x_mean_o->data + (1.0 - lam) * o_batch_norm->rmu;
+            x_mean_f->data = lam * x_mean_f->data + (1.0 - lam) * f_batch_norm->rmu[0];
+            x_mean_i->data = lam * x_mean_i->data + (1.0 - lam) * i_batch_norm->rmu[0];
+            x_mean_g->data = lam * x_mean_g->data + (1.0 - lam) * g_batch_norm->rmu[0];
+            x_mean_o->data = lam * x_mean_o->data + (1.0 - lam) * o_batch_norm->rmu[0];
 
-            x_var_f->data = lam * x_var_f->data + (1.0 - lam) * f_batch_norm->var;
-            x_var_i->data = lam * x_var_i->data + (1.0 - lam) * i_batch_norm->var;
-            x_var_g->data = lam * x_var_g->data + (1.0 - lam) * g_batch_norm->var;
-            x_var_o->data = lam * x_var_o->data + (1.0 - lam) * o_batch_norm->var;
+            x_var_f->data = lam * x_var_f->data + (1.0 - lam) * f_batch_norm->var[0];
+            x_var_i->data = lam * x_var_i->data + (1.0 - lam) * i_batch_norm->var[0];
+            x_var_g->data = lam * x_var_g->data + (1.0 - lam) * g_batch_norm->var[0];
+            x_var_o->data = lam * x_var_o->data + (1.0 - lam) * o_batch_norm->var[0];
         }
     }
     else{
@@ -1011,7 +1205,6 @@ PVariable FullLSTM2::forward(PVariable x) {
 
 void FullLSTM2::reset_state(){
 
-
     if (f_c_w->grad.mDevice != NULL) f_c_w->grad *= 0;
     if (f_h_w->grad.mDevice != NULL) f_h_w->grad *= 0;
     if (f_x_w->grad.mDevice != NULL) f_x_w->grad *= 0;
@@ -1059,7 +1252,6 @@ void FullLSTM2::reset_state(){
     h->last_opt = &last_opt;
     h->is_last_backward = &is_last_backward;
     id++;
-
 }
 
 void FullLSTM2::zero_grads() {
@@ -1363,6 +1555,22 @@ GRU::~GRU() {
     delete w_g; delete u_g, delete b_g;
 }
 
+vector<Variable *> GRU::getParams() {
+    vector < Variable * > params;
+
+    params.push_back(w_r);
+    params.push_back(u_r);
+    params.push_back(b_r);
+    params.push_back(w_z);
+    params.push_back(u_z);
+    params.push_back(b_z);
+    params.push_back(w_g);
+    params.push_back(u_g);
+    params.push_back(b_g);
+
+    return params;
+}
+
 PVariable GRU::forward(PVariable x) {
     // prepare function
     PFunction p_f_w_r_linear(new FunctionLinear(w_r));
@@ -1407,7 +1615,9 @@ PVariable GRU::forward(PVariable x) {
 
 
     if (h.get() == NULL || h->data.rows == 0 || h->data.cols != x->data.cols) {
-        h = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        //h = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
+        h = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
+
         h->opt = id;
 
         last_opt = id;
@@ -1535,17 +1745,20 @@ void GRU::fromHostArray(){
 BatchNorm::BatchNorm() : Graph() {
 }
 
-BatchNorm::BatchNorm(int element_size, float decay) {
-    x_mean = new Variable(element_size, 1);
-    x_var = new Variable(element_size, 1);
+BatchNorm::BatchNorm(int element_size, int channel_num, float decay) {
+    x_mean = new Variable(element_size, channel_num, false);
+    x_var = new Variable(element_size, channel_num, false);
 
-    gamma = new Variable(element_size, 1);
-    beta = new Variable(element_size, 1);
+    gamma = new Variable(element_size, channel_num);
+    beta = new Variable(element_size, channel_num);
 
-    gamma->randoms(0., sqrt((1./(float)element_size)));
+    //gamma->randoms(0., sqrt((1./(float)element_size)));
+    gamma->ones();
 
     lambda = decay;
 
+    this->element_size = element_size;
+    this->channel_num = channel_num;
 }
 BatchNorm::~BatchNorm() {
     if (x_mean != NULL) delete x_mean;
@@ -1553,6 +1766,16 @@ BatchNorm::~BatchNorm() {
 
     if (gamma != NULL) delete gamma;
     if (beta != NULL) delete beta;
+}
+
+vector<Variable *> BatchNorm::getParams(){
+    vector<Variable *> params;
+    //params.push_back(x_mean);
+    //params.push_back(x_var);
+    params.push_back(gamma);
+    params.push_back(beta);
+
+    return params;
 }
 
 PVariable BatchNorm::forward(PVariable x) {
@@ -1565,7 +1788,7 @@ PVariable BatchNorm::forward(PVariable x) {
     */
 
     // prepare function
-    FunctionBatchNorm *f = new FunctionBatchNorm(gamma, beta, x_mean, x_var);
+    FunctionBatchNorm *f = new FunctionBatchNorm(element_size, channel_num, gamma, beta, x_mean, x_var);
     PFunction p_batch_norm(f);
     funcs_chain.push_back(p_batch_norm);
 
@@ -1576,15 +1799,26 @@ PVariable BatchNorm::forward(PVariable x) {
     x_h = p_batch_norm->forward(x);
 
     if (is_train) {
+
         float lam = lambda;
         if (is_first){
             lam = 0.0;
             is_first = false;
         }
-        x_mean->data = lam * x_mean->data + (1.0-lam) * f->rmu;
-        x_var->data = lam * x_var->data  + (1.0-lam) * f->var;
-        //cout << x_mean->data;
-        //cout << f->rmu;
+        //exit(1);
+
+        cuMat current_mean(element_size, channel_num);
+        cuMat current_var(element_size, channel_num);
+
+        for(int i=0; i<channel_num; i++){
+            current_mean.memSetDeviceCol(f->rmu[i].mDevice, i);
+            current_var.memSetDeviceCol(f->var[i].mDevice, i);
+        }
+
+        //x_mean->data = lam * x_mean->data + (1.0-lam) * f->rmu;
+        //x_var->data = lam * x_var->data  + (1.0-lam) * f->var;
+        x_mean->data = lam * x_mean->data + (1.0-lam) * current_mean;
+        x_var->data = lam * x_var->data  + (1.0-lam) * current_var;
     }
 
 
@@ -1605,6 +1839,10 @@ void BatchNorm::fromHostArray() {
     beta->data.fromHostArray();
 }
 
+void BatchNorm::zero_grads() {
+    gamma->zero_grad();
+    beta->zero_grad();
+}
 
 
 
@@ -1612,7 +1850,7 @@ Conv2D::Conv2D() : Graph() {
 
 }
 
-Conv2D::Conv2D(int batch_num, int channel_num, int w_size, int h_size, int filter_size, int filter_num) {
+Conv2D::Conv2D(int batch_num, int channel_num, int w_size, int h_size, int filter_size, int filter_num, int stride, int padding) {
 
     this->batch_num = batch_num;
     this->channel_num = channel_num;
@@ -1620,18 +1858,15 @@ Conv2D::Conv2D(int batch_num, int channel_num, int w_size, int h_size, int filte
     this->h_size = h_size;
     this->filter_size = filter_size;
     this->filter_num = filter_num;
+    this->stride = stride;
+    this->padding = padding;
 
 
     w = new Variable(filter_num, filter_size * filter_size * channel_num);
-
-    //w->randoms(0., sqrt((1./(float)w_size*h_size)));
-    //w->randoms(0., (1./(float)w_size*h_size));
-    //w->randoms(0., 1);
-
+    //w = new Variable(filter_size * filter_size * channel_num, filter_num);
     //He-Normal
     //https://arxiv.org/pdf/1502.01852.pdf
     w->randoms(0., sqrt(2.0/((float)filter_size*filter_size * channel_num)));
-
 
     b = new Variable(filter_num, 1);
 }
@@ -1640,10 +1875,19 @@ Conv2D::~Conv2D() {
     delete b;
 }
 
+vector<Variable *> Conv2D::getParams(){
+    vector<Variable *> params;
+    params.push_back(w);
+    params.push_back(b);
+
+    return params;
+}
+
+
 PVariable Conv2D::forward(PVariable x) {
 
     // prepare function
-    FunctionConv2D *f = new FunctionConv2D(w, b, batch_num, channel_num, w_size, h_size, filter_size, filter_num);
+    FunctionConv2D *f = new FunctionConv2D(w, b, batch_num, channel_num, w_size, h_size, filter_size, filter_num,  stride, padding);
     PFunction p_conv2d(f);
     funcs_chain.push_back(p_conv2d);
 
@@ -1671,17 +1915,19 @@ void Conv2D::fromHostArray() {
 
 Pooling::Pooling() : Graph() {
 }
-Pooling::Pooling(int width, int height, int depth, int windowWidth, int windowHeight){
+Pooling::Pooling(int width, int height, int depth, int windowWidth, int windowHeight, int stride, int padding){
     this->width = width;
     this->height = height;
     this->depth = depth;
     this->windowWidth = windowWidth;
     this->windowHeight = windowHeight;
+    this->stride = stride;
+    this->padding = padding;
 
 }
 
 PVariable Pooling::forward(PVariable x){
-    FunctionPooling *f = new FunctionPooling(width, height, depth, windowWidth, windowHeight);
+    FunctionPooling *f = new FunctionPooling(width, height, depth, windowWidth, windowHeight,  stride, padding);
 
     PFunction p_pooling(f);
     funcs_chain.push_back(p_pooling);
@@ -1690,6 +1936,3 @@ PVariable Pooling::forward(PVariable x){
     return p_pooling->forward(x);
 }
 
-
-
-#endif //DNN_GRAPH_H

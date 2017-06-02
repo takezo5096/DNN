@@ -2,15 +2,14 @@
 // Created by 藤田 毅 on 2016/10/14.
 //
 
+#ifndef GRAPH_H
+#define GRAPH_H
+
 #include <random>
 #include <vector>
 
 #include <boost/serialization/export.hpp>
 #include <boost/serialization/serialization.hpp>
-
-#ifndef GRAPH_H
-#define GRAPH_H
-
 
 #include "function.h"
 //#include "variable.h"
@@ -25,6 +24,11 @@ public:
 
     Graph();
     virtual ~Graph();
+
+    virtual vector<Variable *> getParams();
+
+    virtual void toHostArray();
+    virtual void fromHostArray();
 
     void init();
     void remove_chain();
@@ -55,6 +59,7 @@ private:
         ar & w;
         ar & b;
         ar & noBias;
+        ar & isTranpose;
     }
 
 
@@ -62,13 +67,18 @@ public:
 
     Variable *w, *b;
     bool noBias = false;
+    bool isTranpose = false;
 
 
     Linear();
 
     Linear(int output_size, int input_size, bool no_bias = false);
 
+    Linear(Variable *w, bool isTranspose = false);
+
     ~Linear();
+
+    vector<Variable *> getParams();
 
     PVariable forward(PVariable v);
 
@@ -78,6 +88,69 @@ public:
 
     void toHostArray();
     void fromHostArray();
+};
+
+class SparseLinear : public Graph {
+
+private:
+    friend class boost::serialization::access;
+
+    template<class Archive>
+    void serialize(Archive &ar, const unsigned int version) {
+
+        ar & boost::serialization::base_object<Graph>(*this);
+        ar & w;
+        ar & b;
+        ar & noBias;
+        ar & beta;
+        ar & p;
+        ar & ph;
+    }
+
+
+public:
+
+    Variable *w, *b;
+    bool noBias = false;
+
+    float g;
+    float beta;
+    float p;
+    Variable *ph = NULL;
+
+    SparseLinear();
+
+    SparseLinear(int output_size, int input_size, bool no_bias = false, float g = 0.9, float beta = 0.1, float p = 0.05);
+
+    ~SparseLinear();
+
+    vector<Variable *> getParams();
+
+    PVariable forward(PVariable v);
+
+    PVariable forward(PVariable x, PVariable t);
+
+    void zero_grads();
+
+    void toHostArray();
+    void fromHostArray();
+};
+
+
+class Sigmoid : public Graph {
+public:
+
+    Sigmoid();
+
+    PVariable forward(PVariable v);
+
+private:
+    friend class boost::serialization::access;
+    template<class Archive> void serialize(Archive & ar, const unsigned int version) {
+
+        ar & boost::serialization::base_object<Graph>(*this);
+    }
+
 };
 
 
@@ -105,6 +178,8 @@ public:
     PReLU(int rows, int cols);
     ~PReLU();
 
+    vector<Variable *> getParams();
+
     PVariable forward(PVariable v);
 
     void toHostArray();
@@ -115,6 +190,7 @@ private:
     template<class Archive> void serialize(Archive & ar, const unsigned int version) {
 
         ar & boost::serialization::base_object<Graph>(*this);
+        ar & a;
     }
 
 };
@@ -176,6 +252,7 @@ class Dropout : public Graph {
 public:
 
     float dropout_rate = 0.0;
+    bool is_train = true;
 
     Dropout();
 
@@ -183,11 +260,14 @@ public:
 
     PVariable forward(PVariable v);
 
-private:
+    void isTrain(bool is_train);
+
+        private:
     friend class boost::serialization::access;
     template<class Archive> void serialize(Archive & ar, const unsigned int version) {
 
         ar & boost::serialization::base_object<Graph>(*this);
+        ar & dropout_rate;
     }
 
 };
@@ -254,6 +334,7 @@ private:
 };
 
 class Identity : public Graph {
+public:
     Identity();
     PVariable forward(PVariable v1);
 
@@ -312,6 +393,8 @@ private:
         ar & x_b;
         ar & h_w;
         ar & h_b;
+        ar & input_size;
+        ar & output_size;
     }
 
 };
@@ -411,7 +494,7 @@ public:
     int input_size = 0;
     int output_size = 0;
 
-    bool batch_norm = true;
+    bool batch_norm = false;
     float batch_norm_gamma = 1.0;
     float batch_norm_beta = 0.0;
 
@@ -444,6 +527,8 @@ public:
     FullLSTM2(int output_size, int input_size);
 
     ~FullLSTM2();
+
+    vector<Variable *> getParams();
 
     PVariable forward(PVariable x);
 
@@ -541,6 +626,8 @@ public:
 
     ~GRU();
 
+    vector<Variable *> getParams();
+
     PVariable forward(PVariable x);
 
 
@@ -565,6 +652,9 @@ private:
         ar & w_g;
         ar & u_g;
         ar & b_g;
+
+        ar & input_size;
+        ar & output_size;
     }
 
 };
@@ -583,14 +673,19 @@ public:
     bool is_train = true;
     bool is_first = true;
 
+    int element_size, channel_num;
 
     BatchNorm();
-    BatchNorm(int element_size, float decay);
+    BatchNorm(int element_size, int channel_num, float decay);
     ~BatchNorm();
+
+    vector<Variable *> getParams();
 
     PVariable forward(PVariable x);
 
     void setTrainStatus(bool status);
+
+    void zero_grads();
 
     void toHostArray();
     void fromHostArray();
@@ -605,8 +700,8 @@ private:
         ar & beta;
         ar & x_mean;
         ar & x_var;
-        ar & gamma;
-        ar & beta;
+        ar & element_size;
+        ar & channel_num;
     }
 
 };
@@ -615,15 +710,17 @@ class Conv2D : public Graph {
 public:
 
 
-    int batch_num, channel_num, w_size, h_size, filter_size, filter_num;
+    int batch_num, channel_num, w_size, h_size, filter_size, filter_num, stride, padding;
 
 
     Variable *w = NULL;
     Variable *b = NULL;
 
+    vector<Variable *> getParams();
+
 
     Conv2D();
-    Conv2D(int batch_num, int channel_num, int w_size, int h_size, int filter_size, int filter_num);
+    Conv2D(int batch_num, int channel_num, int w_size, int h_size, int filter_size, int filter_num, int stride, int padding);
     ~Conv2D();
 
     PVariable forward(PVariable x);
@@ -641,6 +738,15 @@ private:
         ar & boost::serialization::base_object<Graph>(*this);
         ar & w;
         ar & b;
+
+        ar & batch_num;
+        ar & channel_num;
+        ar & w_size;
+        ar & h_size;
+        ar & filter_size;
+        ar & filter_num;
+            ar & stride;
+            ar & padding;
     }
 
 };
@@ -649,11 +755,11 @@ private:
 class Pooling : public Graph {
 public:
 
-    int width, height, depth, windowWidth, windowHeight;
+    int width, height, depth, windowWidth, windowHeight, stride, padding;
 
 
     Pooling();
-    Pooling(int width, int height, int depth, int windowWidth, int windowHeight);
+    Pooling(int width, int height, int depth, int windowWidth, int windowHeight, int stride, int padding);
 
     PVariable forward(PVariable x);
 
@@ -664,6 +770,14 @@ public:
     template<class Archive> void serialize(Archive & ar, const unsigned int version) {
 
         ar & boost::serialization::base_object<Graph>(*this);
+
+        ar & width;
+        ar & height;
+        ar & depth;
+        ar & windowWidth;
+        ar & windowHeight;
+            ar & stride;
+            ar & padding;
     }
 
 };

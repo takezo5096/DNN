@@ -1,3 +1,6 @@
+#ifndef _VARIABLE_
+#define _VARIABLE_
+
 #include <list>
 #include <random>
 #include <memory>
@@ -9,8 +12,6 @@
 
 using namespace std;
 
-#ifndef _VARIABLE_
-#define _VARIABLE_
 
 
 //#include "function.h"
@@ -99,6 +100,8 @@ public:
 
     void randoms(float m, float a);
 
+    void binominal_randoms(float ratio);
+
     float val();
 
 
@@ -124,6 +127,10 @@ public:
 
 using PVariable = shared_ptr<Variable>;
 //using PVariable = boost::intrusive_ptr<Variable>;
+
+
+Variable *variable_construct(int rows, int cols);
+void variable_destroy(Variable *ptr);
 
 
 #endif

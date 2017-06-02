@@ -21,6 +21,7 @@ using namespace std;
 
 int func_id = 0;
 
+/*
 int count_function = 0;
 int count_variable = 0;
 
@@ -59,6 +60,13 @@ void obj_destroy(Variable *ptr){
         delete ptr;
     }
 }
+*/
+PVariable variable_construct_for_function(Function *f, int rows, int cols) {
+    PVariable r = PVariable(variable_construct(rows, cols), variable_destroy);
+    r->creator = f;
+
+    return r;
+}
 
 
 // Function class //////////////////////////////////////////////////////////////
@@ -90,7 +98,7 @@ PVariable Function::forward(PVariable v){
     //v->opt++;
     v->forward_count++;
 
-    //cout << "Function::forward: " << this->name << " v->forward_id:" << v->forward_id << endl;
+    //cout << "Function::forward: " << this->name << " v->forward_count:" << v->forward_count << endl;
     //cout << "Function::forward: " << this->name << " v->opt:" << v->opt << " v->forward_id:" << v->forward_id << endl;
 
     inputs.push_back(v);
@@ -218,7 +226,8 @@ PVariable FunctionPlus::forward(vector<PVariable > &inputs, vector<PVariable > &
     PVariable v1 = inputs.at(0);
     PVariable v2 = inputs.at(1);
 
-    PVariable r = PVariable(obj_construct(this, v1->data.rows, v1->data.cols), obj_destroy); //custom
+    //PVariable r = PVariable(obj_construct(this, v1->data.rows, v1->data.cols), obj_destroy); //custom
+    PVariable r = variable_construct_for_function(this, v1->data.rows, v1->data.cols);
 
     v1->data.plus(v2->data, r->data);
 
@@ -243,7 +252,9 @@ PVariable FunctionMinus::forward(vector<PVariable > &inputs, vector<PVariable > 
     PVariable v1 = inputs.at(0);
     PVariable v2 = inputs.at(1);
 
-    PVariable r = PVariable(obj_construct(this, v1->data.rows, v1->data.cols), obj_destroy); //custom
+    //PVariable r = PVariable(obj_construct(this, v1->data.rows, v1->data.cols), obj_destroy); //custom
+    PVariable r = variable_construct_for_function(this, v1->data.rows, v1->data.cols);
+
     outputs.push_back(r);
 
     v1->data.minus(v2->data, r->data);
@@ -269,7 +280,9 @@ PVariable FunctionMul::forward(vector<PVariable > &inputs, vector<PVariable > &o
     PVariable v1 = inputs.at(0);
     PVariable v2 = inputs.at(1);
 
-    PVariable r = PVariable(obj_construct(this, v1->data.rows, v1->data.cols), obj_destroy); //custom
+    //PVariable r = PVariable(obj_construct(this, v1->data.rows, v1->data.cols), obj_destroy); //custom
+    PVariable r = variable_construct_for_function(this, v1->data.rows, v1->data.cols);
+
 
     outputs.push_back(r);
     v1->data.mul(v2->data, r->data);
@@ -296,7 +309,9 @@ PVariable FunctionInverse::forward(vector<PVariable > &inputs, vector<PVariable 
 
     PVariable v = inputs.at(0);
 
-    PVariable r = PVariable(obj_construct(this, v->data.rows, v->data.cols), obj_destroy); //custom
+    //PVariable r = PVariable(obj_construct(this, v->data.rows, v->data.cols), obj_destroy); //custom
+    PVariable r = variable_construct_for_function(this, v->data.rows, v->data.cols);
+
 
     outputs.push_back(r);
     v->data.inverse(r->data);
@@ -318,7 +333,9 @@ PVariable FunctionSqrt::forward(vector<PVariable > &inputs, vector<PVariable > &
 
     PVariable v = inputs.at(0);
 
-    PVariable r = PVariable(obj_construct(this, v->data.rows, v->data.cols), obj_destroy); //custom
+    //PVariable r = PVariable(obj_construct(this, v->data.rows, v->data.cols), obj_destroy); //custom
+    PVariable r = variable_construct_for_function(this, v->data.rows, v->data.cols);
+
 
     outputs.push_back(r);
     v->data.sqrt(r->data, 1e-8);
@@ -400,15 +417,17 @@ void FunctionLog::backward(cuMat &p_grad, vector<PVariable > &inputs, vector<PVa
 FunctionLinear::FunctionLinear() : Function() {
     name = "FunctionLinear";
 }
-FunctionLinear::FunctionLinear(Variable *w, Variable *b) : Function() {
+FunctionLinear::FunctionLinear(Variable *w, Variable *b,  bool isTranspose) : Function() {
     name = "FunctionLinear";
     this->w  = w;
     this->b = b;
+    this->isTranspose = isTranspose;
 }
-FunctionLinear::FunctionLinear(Variable *w) : Function() {
+FunctionLinear::FunctionLinear(Variable *w,  bool isTranspose) : Function() {
     name = "FunctionLinear";
     noBias = true;
     this->w  = w;
+    this->isTranspose = isTranspose;
 
 }
 FunctionLinear::FunctionLinear(int output_size, int input_size) : Function() {
@@ -465,7 +484,14 @@ PVariable FunctionLinear::forward(vector<PVariable > &inputs, vector<PVariable >
 
 
     PVariable x = inputs.at(0);
-    PVariable r = PVariable(obj_construct(this, w->data.rows, x->data.cols), obj_destroy); //custom
+
+    int w_size = w->data.rows;
+    if (isTranspose) w_size = w->data.cols;
+
+    //PVariable r = PVariable(new Variable(this, w->data.rows, x->data.cols));
+    PVariable r = PVariable(new Variable(this, w_size, x->data.cols));
+
+
 
     if (i1.cols == 0 || i1.cols != x->data.cols){
         i1 = cuMat(1, x->data.cols);
@@ -475,26 +501,59 @@ PVariable FunctionLinear::forward(vector<PVariable > &inputs, vector<PVariable >
 
 
     if (!noBias) b->data.dot(i1, r->data);
-    w->data.dot_plus(x->data, r->data);
+    if (!isTranspose) w->data.dot_plus(x->data, r->data);
+    else w->data.transpose().dot_plus(x->data, r->data);
     //r->data = w->data.dot(x->data) + b->data.dot(i1);
 
     return r;
+
+    /*
+    PVariable x = inputs.at(0);
+    PVariable r = PVariable(new Variable(this, w->data.rows, x->data.cols));
+
+    if (i1.cols == 0 || i1.cols != x->data.cols){
+        i1 = cuMat(1, x->data.cols);
+        i1.ones();
+    }
+
+    r->data = w->data.dot(x->data) + b->data.dot(i1);
+
+    return r;
+     */
 }
 void FunctionLinear::backward(cuMat &p_grad, vector<PVariable > &inputs, vector<PVariable > &outputs){
 
+
     PVariable x = inputs.at(0);
 
-    //add 2016.09.20
-    float batchSizeNorm = 1.0/((float)x->data.cols);
 
 
     if (x->isGetGrad){
-        w->data.transpose_dot_plus(p_grad, x->grad);
+        if (!isTranspose) w->data.transpose_dot_plus(p_grad, x->grad);
+        else w->data.transpose().transpose_dot_plus(p_grad, x->grad);
+
+        /*
+        //check grad
+        cuMat ones(x->data.rows, x->data.cols);
+        ones.ones();
+        cuMat tmp = w->data.dot(x->data+0.0001*ones) - w->data.dot(x->data-0.0001*ones);
+        tmp = 1/(2*0.0001) * tmp;
+        cuMat diff = tmp - x->grad;
+        if (diff.sum() > 0.0001){
+            cout << "gradient error diff:" << diff << endl;
+        }
+         */
+
     }
     //x->grad += w->data.transpose().dot(p_grad);
 
-
-    p_grad.dot_transpose_plus(x->data, w->grad);
+    if (!isTranspose) p_grad.dot_transpose_plus(x->data, w->grad);
+    else {
+        cuMat tmpwg = w->grad.transpose();
+        tmpwg *= 0;
+        p_grad.dot_transpose_plus(x->data, tmpwg);
+        w->grad += tmpwg.transpose();
+    }
     //w->grad += p_grad.dot(x->data.transpose());
     //w->grad.mul(1.0/((float)x->grad.cols), w->grad); //normalize by batch_size
 
@@ -509,11 +568,117 @@ void FunctionLinear::backward(cuMat &p_grad, vector<PVariable > &inputs, vector<
     //b->grad.mul(1.0/((float)x->grad.cols), b->grad); //normalize by batch_size
 
 
-    //clipping gradient weight data
-    //clip_grad(w);
-    //if (!noBias) clip_grad(b);
+    /*
+    PVariable x = inputs.at(0);
+    x->grad += w->data.transpose().dot(p_grad);
+    w->grad += p_grad.dot(x->data.transpose());
+    b->grad += p_grad.dot(i1.transpose());
+    */
+}
+
+
+
+FunctionSparseLinear::FunctionSparseLinear() : Function() {
+    name = "FunctionSparseLinear";
+}
+FunctionSparseLinear::FunctionSparseLinear(Variable *w, Variable *b, float beta, float p, Variable *ph) : Function() {
+    name = "FunctionSparseLinear";
+    this->w  = w;
+    this->b = b;
+
+    this->beta = beta;
+    this->p = p;
+    this->ph = ph;
+}
+FunctionSparseLinear::FunctionSparseLinear(Variable *w, float beta, float p, Variable *ph) : Function() {
+    name = "FunctionSparseLinear";
+    noBias = true;
+    this->w  = w;
+
+    this->beta = beta;
+    this->p = p;
+    this->ph = ph;
+}
+void FunctionSparseLinear::toHostArray(){
+    i1.toHostArray();
+    w->data.toHostArray();
+    w->grad.toHostArray();
+    if (!noBias){
+        b->data.toHostArray();
+        b->grad.toHostArray();
+    }
+}
+void FunctionSparseLinear::fromHostArray(){
+    i1.fromHostArray();
+    w->data.fromHostArray();
+    w->grad.fromHostArray();
+    if (!noBias){
+        b->data.fromHostArray();
+        b->grad.fromHostArray();
+    }
+}
+
+
+PVariable FunctionSparseLinear::forward(vector<PVariable > &inputs, vector<PVariable > &outputs){
+
+    PVariable x = inputs.at(0);
+    PVariable r = PVariable(new Variable(this, w->data.rows, x->data.cols));
+
+    if (i1.cols == 0 || i1.cols != x->data.cols){
+        i1 = cuMat(1, x->data.cols);
+        i1.ones();
+    }
+
+    if (!noBias) b->data.dot(i1, r->data);
+    w->data.dot_plus(x->data, r->data);
+
+    outputs.push_back(r);
+
+    PVariable r2 = PVariable(new Variable(this, w->data.rows, x->data.cols));
+    r->data.relu(r2->data);
+    //r->data.sigmoid(r2->data);
+
+    return r2;
+}
+
+void FunctionSparseLinear::backward(cuMat &p_grad, vector<PVariable > &inputs, vector<PVariable > &outputs){
+
+
+    PVariable o = outputs.at(0);
+    cuMat sg = o->data.relu_d();
+    //cuMat sg = o->data.sigmoid_d();
+
+
+    PVariable x = inputs.at(0);
+
+    if (x->isGetGrad){
+        w->data.transpose_dot_plus(p_grad, x->grad);
+    }
+
+    // KL
+    cuMat ones(ph->data.rows, ph->data.cols);
+    ones.ones();
+    cuMat p_tmp(ph->data.rows, ph->data.cols);
+    p_tmp.ones();
+    p_tmp *= p;
+
+    cuMat kl = beta * (-1.0 * p_tmp / ph->data + (ones - p_tmp) / (ones - ph->data));
+
+    p_grad += kl;
+    p_grad *= sg;
+
+    p_grad.dot_transpose_plus(x->data, w->grad);
+
+    if (!noBias){
+        p_grad.dot_transpose_plus(i1, b->grad);
+    }
+
 
 }
+
+
+
+
 
 
 
@@ -547,7 +712,9 @@ PVariable FunctionEmbed::forward(vector<PVariable > &inputs, vector<PVariable > 
     if (!x->isSparse) x_cols = x->data.cols;
     else x_cols = x->data_sparse.rows;
 
-    PVariable r = PVariable(obj_construct(this, w.data.rows, x_cols), obj_destroy); //custom
+    //PVariable r = PVariable(obj_construct(this, w.data.rows, x_cols), obj_destroy); //custom
+    PVariable r = variable_construct_for_function(this, w.data.rows, x_cols);
+
     outputs.push_back(r);
 
 
@@ -640,23 +807,28 @@ void FunctionEmbed::fromHostArray(){
 
 
 
+
 FunctionReLU::FunctionReLU() : Function() {
     name = "FunctionReLU";
 }
 PVariable FunctionReLU::forward(vector<PVariable > &inputs, vector<PVariable > &outputs){
 
+
     PVariable x = inputs.at(0);
 
+    //PVariable r = variable_construct_for_function(this, x->data.rows, x->data.cols);
+    PVariable r = PVariable(new Variable(this, x->data.rows, x->data.cols));
 
-    PVariable r = PVariable(obj_construct(this, x->data.rows, x->data.cols), obj_destroy); //custom
-
-    outputs.push_back(r);
+    //outputs.push_back(r);
 
     x->data.relu(r->data);
 
     return r;
+
+
 }
 void FunctionReLU::backward(cuMat &p_grad, vector<PVariable > &inputs, vector<PVariable > &outputs){
+
     PVariable x = inputs.at(0);
 
 
@@ -668,8 +840,14 @@ void FunctionReLU::backward(cuMat &p_grad, vector<PVariable > &inputs, vector<PV
 
     if (x->isGetGrad) rr->data.mul_plus(p_grad, x->grad, 1.0, 1.0);
 
+
     //rr->data.mul(p_grad, rr->data);
     //x->grad.plus(rr->data, x->grad);
+
+    /*
+    PVariable x = inputs.at(0);
+    x->grad += x->data.relu_d() * p_grad;
+     */
 }
 
 //=====
@@ -686,7 +864,9 @@ PVariable FunctionPReLU::forward(vector<PVariable > &inputs, vector<PVariable > 
     PVariable x = inputs.at(0);
 
 
-    PVariable r = PVariable(obj_construct(this, x->data.rows, x->data.cols), obj_destroy); //custom
+    //PVariable r = PVariable(obj_construct(this, x->data.rows, x->data.cols), obj_destroy); //custom
+    PVariable r = variable_construct_for_function(this, x->data.rows, x->data.cols);
+
 
     outputs.push_back(r);
 
@@ -723,9 +903,11 @@ PVariable FunctionSigmoid::forward(vector<PVariable > &inputs, vector<PVariable 
     //PVariable r;
     //if (outputs.empty()){
         //r = PVariable(new Variable(this, x->data.rows, x->data.cols));
-        PVariable r = PVariable(obj_construct(this, x->data.rows, x->data.cols), obj_destroy); //custom
+        //PVariable r = PVariable(obj_construct(this, x->data.rows, x->data.cols), obj_destroy); //custom
+    PVariable r = variable_construct_for_function(this, x->data.rows, x->data.cols);
 
-        outputs.push_back(r);
+
+    outputs.push_back(r);
    //}
     //else r = outputs.back();
     /*
@@ -765,9 +947,11 @@ PVariable FunctionTanh::forward(vector<PVariable > &inputs, vector<PVariable > &
     //PVariable r;
     //if (outputs.empty()){
         //r = PVariable(new Variable(this, x->data.rows, x->data.cols));
-        PVariable r = PVariable(obj_construct(this, x->data.rows, x->data.cols), obj_destroy); //custom
+        //PVariable r = PVariable(obj_construct(this, x->data.rows, x->data.cols), obj_destroy); //custom
+    PVariable r = variable_construct_for_function(this, x->data.rows, x->data.cols);
 
-        outputs.push_back(r);
+
+    outputs.push_back(r);
     //}
     //else r = outputs.back();
     /*
@@ -808,9 +992,11 @@ PVariable FunctionSoftmax::forward(vector<PVariable > &inputs, vector<PVariable 
     //cuMat y(x->data.rows, x->data.cols);
     //PVariable r;
     //if (outputs.empty()){
-        //r = PVariable(new Variable(x->data.rows, x->data.cols));
-        PVariable r = PVariable(obj_construct(NULL, x->data.rows, x->data.cols), obj_destroy);
-        outputs.push_back(r);
+        //PVariable r = PVariable(obj_construct(NULL, x->data.rows, x->data.cols), obj_destroy);
+    //PVariable r = variable_construct_for_function(NULL, x->data.rows, x->data.cols);
+    PVariable r = PVariable(new Variable(x->data.rows, x->data.cols));
+
+    outputs.push_back(r);
     //}
     //else r = outputs.back();
 
@@ -862,16 +1048,16 @@ PVariable FunctionSoftmaxCrossEntropy::forward(vector<PVariable > &inputs, vecto
 
     //PVariable r;
     //if (outputs.empty()){
-        //PVariable r = PVariable(new Variable(this, loss.rows, loss.cols));
-        PVariable r = PVariable(obj_construct(this, loss.rows, loss.cols), obj_destroy); //custom
-        outputs.push_back(r);
+        //PVariable r = PVariable(obj_construct(this, loss.rows, loss.cols), obj_destroy); //custom
+    //PVariable r = variable_construct_for_function(this, loss.rows, loss.cols);
+    PVariable r = PVariable(new Variable(this, loss.rows, loss.cols));
+
+    outputs.push_back(r);
     //}
     //else r = outputs.back();
 
-    //if (r == NULL) r = new Variable(this, loss.rows, loss.cols);
-
-    loss.mul(sum, r->data);
-
+    //loss.mul(sum, r->data);
+    r->data = loss * sum;
     return r;
 }
 void FunctionSoftmaxCrossEntropy::backward(cuMat &p_grad, vector<PVariable > &inputs, vector<PVariable > &outputs){
@@ -883,18 +1069,7 @@ void FunctionSoftmaxCrossEntropy::backward(cuMat &p_grad, vector<PVariable > &in
     PVariable t = inputs.at(1);
     PVariable y = rr;
 
-    if (rr2.get() == NULL || rr2->data.cols != y->data.cols){
-        rr2 = PVariable(new Variable(y->data));
-    }
-    //else rr2->data = y->data;
-
-    //rr2->data.minus(t->data, rr2->data);
-    y->data.minus(t->data, rr2->data);
-    float batch_size = rr2->data.cols;
-    //rr2->data.mul(1.0/batch_size, rr2->data); //remove 2016.09.20
-    if (x->isGetGrad) x->grad.plus(rr2->data, x->grad);
-    //x->grad.plus(rr2->data/rr2->data.cols, x->grad);
-    //x->grad += y->data - t->data;
+    if (x->isGetGrad) x->grad += y->data - t->data;
 }
 
 
@@ -923,8 +1098,10 @@ PVariable FunctionMeanSquaredError::forward(vector<PVariable > &inputs, vector<P
 
     //PVariable r;
     //r = PVariable(new Variable(this, loss.rows, loss.cols));
-    PVariable r = PVariable(obj_construct(this, loss.rows, loss.cols), obj_destroy);
-   outputs.push_back(r);
+    //PVariable r = PVariable(obj_construct(this, loss.rows, loss.cols), obj_destroy);
+    PVariable r = variable_construct_for_function(this, loss.rows, loss.cols);
+
+    outputs.push_back(r);
 
     //if (r == NULL) r = new Variable(this, loss.rows, loss.cols);
     loss.mul(sum, r->data);
@@ -962,10 +1139,11 @@ PVariable FunctionDropout::forward(vector<PVariable > &inputs, vector<PVariable 
 
     //PVariable r;
     //if (outputs.empty()){
-        //r = PVariable(new Variable(this, x->data.rows, x->data.cols));
-        PVariable r = PVariable(obj_construct(this, x->data.rows, x->data.cols), obj_destroy); //custom
+        //PVariable r = PVariable(obj_construct(this, x->data.rows, x->data.cols), obj_destroy); //custom
+    //PVariable r = variable_construct_for_function(this, x->data.rows, x->data.cols);
+    PVariable r = PVariable(new Variable(this, x->data.rows, x->data.cols));
 
-        outputs.push_back(r);
+    outputs.push_back(r);
     //}
     //else r = outputs.back();
     /*
@@ -989,9 +1167,9 @@ void FunctionDropout::backward(cuMat &p_grad, vector<PVariable > &inputs, vector
     PVariable x = inputs.at(0);
     PVariable idx = rr;
 
-    if (rr2.get() == NULL || rr2->data.cols != x->grad.cols){
-        rr2 = PVariable(new Variable(x->grad.rows, x->grad.cols));
-    }
+    //if (rr2.get() == NULL || rr2->data.cols != x->grad.cols){
+    //    rr2 = PVariable(new Variable(x->grad.rows, x->grad.cols));
+    //}
 
     if (x->isGetGrad) idx->data.mul_plus(p_grad, x->grad, 1.0, 1.0);
     //idx->data.mul(p_grad, rr2->data);
@@ -1009,7 +1187,9 @@ PVariable FunctionIdentity::forward(vector<PVariable> &inputs, vector<PVariable>
 
     PVariable x = inputs.at(0);
 
-    PVariable r = PVariable(obj_construct(this, x->data.rows, x->data.cols), obj_destroy); //custom
+    //PVariable r = PVariable(obj_construct(this, x->data.rows, x->data.cols), obj_destroy); //custom
+    PVariable r = variable_construct_for_function(this, x->data.rows, x->data.cols);
+
     r->data = x->data;
 
     return r;
@@ -1056,7 +1236,9 @@ PVariable FunctionLSTM::forward(vector<PVariable> &inputs, vector<PVariable> &ou
     cuMat tmp = c_next->data;
     c_next->data.tanh(tmp);
 
-    PVariable r = PVariable(obj_construct(this, offset, x->data.cols), obj_destroy); //custom
+    //PVariable r = PVariable(obj_construct(this, offset, x->data.cols), obj_destroy); //custom
+    PVariable r = variable_construct_for_function(this, x->data.rows, x->data.cols);
+
 
     r->data = _o * tmp;
 
@@ -1135,7 +1317,9 @@ PVariable FunctionFullLSTM::forward(vector<PVariable> &inputs, vector<PVariable>
     o_hat = o_c_w->data.dot(c_next->data) + o_h_w->data.dot(h->data) + o_x_w->data.dot(x->data) + o_x_b->data.dot(ones);
     o = o_hat.sigmoid();
 
-    PVariable h_next = PVariable(obj_construct(this, f_x_w->data.rows, x->data.cols), obj_destroy);
+    //PVariable h_next = PVariable(obj_construct(this, f_x_w->data.rows, x->data.cols), obj_destroy);
+    PVariable h_next = variable_construct_for_function(this, f_x_w->data.rows, x->data.cols);
+
 
     h_next->data = c_next->data.tanh() * o;
 
@@ -1247,7 +1431,9 @@ PVariable FunctionGRU::forward(vector<PVariable> &inputs, vector<PVariable> &out
     g_hat = w_g->data.dot(h->data * r) + u_g->data.dot(x->data) + b_g->data.dot(ones_b);
     g = g_hat.tanh();
 
-    PVariable h_new = PVariable(obj_construct(this, w_r->data.rows, x->data.cols), obj_destroy);
+    //PVariable h_new = PVariable(obj_construct(this, w_r->data.rows, x->data.cols), obj_destroy);
+    PVariable h_new = variable_construct_for_function(this, w_r->data.rows, x->data.cols);
+
 
     h_new->data = h->data * (ones - z) + z * g;
 
@@ -1308,14 +1494,149 @@ void FunctionGRU::backward(cuMat &delta_h, vector<PVariable> &inputs, vector<PVa
 }
 
 
-FunctionBatchNorm::FunctionBatchNorm(Variable *gamma, Variable *beta, Variable *x_mean, Variable *x_var) {
+FunctionBatchNorm::FunctionBatchNorm(int element_size, int channel_num, Variable *gamma, Variable *beta, Variable *x_mean, Variable *x_var) {
     this->gamma = gamma;
     this->beta = beta;
 
     this->x_mean = x_mean;
     this->x_var = x_var;
 
+    this->element_size = element_size;
+    this->channel_num = channel_num;
+
+    xhat.resize(channel_num);
+    rmu.resize(channel_num);
+    xmu.resize(channel_num);
+    ivar.resize(channel_num);
+    sqrtvar.resize(channel_num);
+    var.resize(channel_num);
+
 }
+
+
+PVariable FunctionBatchNorm::forward(vector<PVariable> &inputs, vector<PVariable> &outputs) {
+
+    PVariable x_org = inputs[0];
+
+    PVariable r = variable_construct_for_function(this, x_org->data.rows, x_org->data.cols);
+
+    for(int i=0; i<channel_num; i++) {
+
+        int idx = i*element_size;
+        cuMat x_data = x_org->data.sliceRows(idx, element_size);
+
+        int N = x_data.cols;
+        int D = x_data.rows;
+
+        cuMat ones(D, N);
+        ones.ones();
+
+
+        //step 1
+        if (is_train) rmu[i] = 1.0 / N * x_data.batch_sum();
+        else{
+            rmu[i] = cuMat(element_size, 1);
+            rmu[i].memSetDevice(this->x_mean->data.mDevice + idx);
+        }
+        cuMat mu = rmu[i].vec_to_mat(N);
+
+        //step 2
+        xmu[i] = x_data - mu;
+
+        //step 3
+        cuMat sq = xmu[i] * xmu[i];
+
+        //step 4
+        if (is_train) var[i] = 1.0 / N * sq.batch_sum();
+        else {
+            var[i] = cuMat(element_size, 1);
+            var[i].memSetDevice(x_var->data.mDevice + idx);
+            var[i] = ((float) N) / (((float) N) - 1.0) * var[i];
+        } //use unbiased variance
+
+        //step 5
+        sqrtvar[i] = var[i].sqrt();
+
+        //step 6
+        ivar[i] = sqrtvar[i].inverse();
+        cuMat tmp = ivar[i].vec_to_mat(N);
+
+        //step 7
+        xhat[i] = xmu[i] * tmp;
+
+        //step 8
+        cuMat gamma_tmp(element_size, 1);
+        gamma_tmp.memSetDevice(gamma->data.mDevice + idx);
+        cuMat gammax = xhat[i].mat_vec_mul(gamma_tmp, 0);
+
+        //step 9
+        cuMat beta_tmp(element_size, 1);
+        beta_tmp.memSetDevice(beta->data.mDevice + idx);
+        cuMat r_c = gammax + ones.mat_vec_mul(beta_tmp, 0);
+        r->data.joinRows(r_c, idx, element_size);
+
+    }
+
+    return r;
+}
+
+void FunctionBatchNorm::backward(cuMat &dout_org, vector<PVariable> &inputs, vector<PVariable> &outputs) {
+
+    PVariable x = inputs[0];
+
+    for(int i=0; i<channel_num; i++) {
+
+        int idx = i*element_size;
+        cuMat dout = dout_org.sliceRows(idx, element_size);
+
+        int N = dout.cols;
+        int D = dout.rows;
+
+
+        //step 9
+        beta->grad.memSetDeviceRow(dout.batch_sum().mDevice, i);
+        cuMat dgammax = dout;
+
+        //step 8
+        cuMat tmp = dgammax * xhat[i];
+        gamma->grad.memSetDeviceRow(tmp.batch_sum().mDevice, i);
+        cuMat gamma_tmp(element_size, 1);
+        gamma_tmp.memSetDevice(gamma->data.mDevice + idx);
+        cuMat dxhat = dgammax.mat_vec_mul(gamma_tmp, 0);
+
+        //step 7
+        tmp = dxhat * xmu[i];
+        cuMat divar = tmp.batch_sum();
+        cuMat dxmu1 = dxhat.mat_vec_mul(ivar[i], 0);
+
+        //step 6
+        //tmp = sqrtvar.inverse_d();
+        tmp = -1.0 * sqrtvar[i].inverse() * sqrtvar[i].inverse();
+        cuMat dsqrtvar = tmp * divar;
+
+        //step 5
+        cuMat dvar = var[i].sqrt_d() * dsqrtvar;
+
+        //step 4
+        cuMat dsq = 1.0 / N * dvar.vec_to_mat(N);
+
+        //step 3
+        cuMat dxmu2 = 2.0 * xmu[i] * dsq;
+
+        //step 2
+        cuMat dx1 = dxmu1 + dxmu2;
+        cuMat dmu = -1.0 * dx1.batch_sum();
+
+        //step 1
+        cuMat dx2 = 1.0 / N * dmu.vec_to_mat(N);
+
+        //step0
+        cuMat dx3 = dx1 + dx2;
+        x->grad.joinRows(dx3, idx, element_size);
+    }
+}
+
+/*
 PVariable FunctionBatchNorm::forward(vector<PVariable> &inputs, vector<PVariable> &outputs) {
 
     PVariable x = inputs[0];
@@ -1355,7 +1676,9 @@ PVariable FunctionBatchNorm::forward(vector<PVariable> &inputs, vector<PVariable
     cuMat gammax = xhat.mat_vec_mul(gamma->data, 0);
 
     //step 9
-    PVariable r = PVariable(obj_construct(this, x->data.rows, x->data.cols), obj_destroy);
+    //PVariable r = PVariable(obj_construct(this, x->data.rows, x->data.cols), obj_destroy);
+    PVariable r = variable_construct_for_function(this, x->data.rows, x->data.cols);
+
     r->data = gammax + ones.mat_vec_mul(beta->data, 0);
 
     return r;
@@ -1405,11 +1728,12 @@ void FunctionBatchNorm::backward(cuMat &dout, vector<PVariable> &inputs, vector<
 
     //step0
     x->grad += dx1 + dx2;
+
 }
+*/
 
 
-
-FunctionConv2D::FunctionConv2D(Variable *w, Variable *b, int batch_num, int channel_num, int w_size, int h_size, int filter_size, int filter_num){
+FunctionConv2D::FunctionConv2D(Variable *w, Variable *b, int batch_num, int channel_num, int w_size, int h_size, int filter_size, int filter_num, int stride, int padding){
 
     this->batch_num = batch_num;
     this->channel_num = channel_num;
@@ -1417,83 +1741,137 @@ FunctionConv2D::FunctionConv2D(Variable *w, Variable *b, int batch_num, int chan
     this->h_size = h_size;
     this->filter_size = filter_size;
     this->filter_num = filter_num;
+    this->stride = stride;
+    this->padding = padding;
 
     this->w = w;
     this->b = b;
 
     this->name = "FunctionConv2D";
+
+    /**
+    * Each dimension h and w of the output images is computed as followed:
+    * outputDim = 1 + (inputDim + 2*pad - filterDim)/convolutionStride
+    */
+    this->outputDim_w = 1 + (w_size + (padding+padding) - filter_size) / stride;
+    this->outputDim_h = 1 + (h_size + (padding+padding) - filter_size) / stride;
+
+    ones = new Variable(this->outputDim_w * this->outputDim_h, 1);
+    ones->ones();
 }
+
+FunctionConv2D::~FunctionConv2D(){
+    delete ones;
+}
+
+
 
 /*
-FunctionConv2D::~FunctionConv2D(){
+cuMat FunctionConv2D::forward_one(cuMat &data){
 
+    int output_dim_w, output_dim_h;
+
+    cuMat stacked = data.im2col(w_size, h_size, channel_num, filter_size, filter_size, stride, stride, padding, padding, padding, padding, output_dim_w, output_dim_h);
+
+    cols.push_back(stacked);
+
+    cuMat r = w->data.dot(stacked) + b->data.dot(ones->data);
+
+    return r.transpose();
 }
- */
+
+
+cuMat FunctionConv2D::backward_one(cuMat &col, cuMat &p_grad) {
+
+
+    //w->grad += p_grad.dot(x->data.transpose());
+    //b->grad += p_grad.dot(i1.transpose());
+    //x->grad += w->data.transpose().dot(p_grad);
+
+
+    cuMat p_grad_t = p_grad.transpose();
+
+
+
+    //cout << w->grad;
+    //cout << p_grad_t;
+    //cout << col;
+    //exit(1);
+
+
+    w->grad += p_grad_t.dot(col.transpose());
+
+    b->grad += p_grad_t.dot(ones->data.transpose());
+
+    cuMat dcol = w->data.transpose().dot(p_grad_t);
+
+    cuMat dx = dcol.col2im(w_size, h_size, channel_num, filter_size, filter_size, stride, stride, padding, padding, padding, padding);
+
+    return dx;
+}
+*/
 
 
 cuMat FunctionConv2D::forward_one(cuMat &data){
 
     int output_dim_w, output_dim_h;
 
-    cuMat stacked = data.im2col(w_size, h_size, channel_num, filter_size, filter_size, 1, 1, 2, 2, 2, 2, output_dim_w, output_dim_h);
+    cuMat stacked = data.im2col(w_size, h_size, channel_num, filter_size, filter_size, stride, stride, padding, padding, padding, padding, output_dim_w, output_dim_h);
 
     cols.push_back(stacked);
 
-    cuMat r = w->data.dot(stacked.transpose());
-
-    cuMat ones(1, r.cols);
-    ones.ones();
-
-    r = r.transpose();
+    cuMat r = stacked.dot(w->data.transpose()) + ones->data.dot(b->data.transpose());
 
     return r;
 }
 
-cuMat FunctionConv2D::backward_one(cuMat &col, cuMat &p_grad_raw) {
 
-    cuMat p_grad = p_grad_raw.transpose();
+cuMat FunctionConv2D::backward_one(cuMat &col, cuMat &p_grad) {
 
-    cuMat p_grad_mat(filter_num, outputDim_w * outputDim_h);
 
-    p_grad_mat.memSetDevice(p_grad.mDevice);
+    //w->grad += p_grad.dot(x->data.transpose());
+    //b->grad += p_grad.dot(i1.transpose());
+    //x->grad += w->data.transpose().dot(p_grad);
 
-    w->grad += p_grad_mat.dot(col);
 
-    cuMat ones(p_grad_mat.cols, 1);
-    ones.ones();
+    //cout << w->grad;
+    //cout << p_grad;
+    //cout << col;
+    //exit(1);
 
-    cuMat dcol = w->data.transpose().dot(p_grad_mat);
+    cuMat p_grad_t = p_grad.transpose();
 
-    cuMat dx = dcol.col2im(w_size, h_size, channel_num, filter_size, filter_size, 1, 1, 2, 2, 2, 2);
+    //w->grad += col.transpose().dot(p_grad).transpose();
+    w->grad += p_grad_t.dot(col);
+
+    //b->grad += ones->data.transpose().dot(p_grad).transpose();
+    b->grad += p_grad_t.dot(ones->data);
+
+    cuMat dcol = p_grad.dot(w->data);
+
+    cuMat dx = dcol.col2im(w_size, h_size, channel_num, filter_size, filter_size, stride, stride, padding, padding, padding, padding);
 
     return dx;
-
 }
+
 
 
 PVariable FunctionConv2D::forward(vector<PVariable> &inputs, vector<PVariable> &outputs){
 
-
     PVariable x = inputs[0];
 
-    /**
-        * Each dimension h and w of the output images is computed as followed:
-        * outputDim = 1 + (inputDim + 2*pad - filterDim)/convolutionStride
-        */
-    outputDim_w = 1 + (w_size + (2+2) - filter_size) / 1;
-    outputDim_h = 1 + (h_size + (2+2) - filter_size) / 1;
+    //PVariable r = variable_construct_for_function(this, filter_num * outputDim_w * outputDim_h, batch_num);
+    PVariable r = PVariable(new Variable(this, filter_num * outputDim_w * outputDim_h, batch_num));
 
-    PVariable r = PVariable(obj_construct(this, filter_num * outputDim_w * outputDim_h, batch_num), obj_destroy);
 
     for(int i=0; i<batch_num; i++) {
         int data_index = i*(channel_num * w_size * h_size);
         float *one_m = x->data.mDevice + data_index;
-        cuMat one_m_dev(channel_num * w_size * h_size, 1);
+        cuMat one_m_dev(w_size * h_size, channel_num);
         one_m_dev.memSetDevice(one_m);
         cuMat r_array = forward_one(one_m_dev);
         r->data.memSetDeviceCol(r_array.mDevice, i);
     }
-
     return r;
 }
 
@@ -1516,19 +1894,51 @@ void FunctionConv2D::backward(cuMat &p_grad, vector<PVariable> &inputs, vector<P
 
         dx.memSetDeviceCol(r_array.mDevice, i);
     }
+
+    /*
+    //check grad
+    cuMat ones(x->data.rows, x->data.cols);
+    ones.ones();
+    vector<PVariable> inputs1; PVariable test1(x); test1->data += 0.0001*ones; inputs1.push_back(test1);
+    vector<PVariable> inputs2; PVariable test2(x); test2->data -= 0.0001*ones; inputs2.push_back(test2);
+    PVariable a1= this->forward(inputs1, inputs1);
+    cout << a1->data;
+    PVariable a2 = this->forward(inputs2, inputs2);
+    cout << a2->data;
+    exit(1);
+
+
+    cuMat tmp = this->forward(inputs1, inputs1)->data - this->forward(inputs2, inputs2)->data;
+    tmp = 1/(2*0.001) * tmp;
+    cout << tmp;
+    cout << dx;
+    cout << x->data;
+    cuMat diff = tmp - dx;
+    cout << "================" << endl;
+    //if (diff.sum() > 0.0001){
+    //    cout << "gradient error diff:" << diff << endl;
+    //}
+    */
+
     x->grad += dx;
 }
 
 
-FunctionPooling::FunctionPooling(int width, int height, int depth, int windowWidth, int windowHeight){
+FunctionPooling::FunctionPooling(int width, int height, int depth, int windowWidth, int windowHeight, int stride, int padding){
+
+    name = "FunctionPooling";
+
     this->width = width;
     this->height = height;
     this->depth = depth;
     this->windowWidth = windowWidth;
     this->windowHeight = windowHeight;
+    this->stride = stride;
+    this->padding = padding;
 }
 
 
+/*
 PVariable FunctionPooling::forward(vector<PVariable> &inputs, vector<PVariable> &outputs){
     PVariable x = inputs[0];
 
@@ -1537,17 +1947,24 @@ PVariable FunctionPooling::forward(vector<PVariable> &inputs, vector<PVariable> 
 
     int batch_num = x->data.cols;
 
-    //* according to the cuDNN Library reference, get pooling size as followed:
-    //* outputDim = 1 + (inputDim + 2*padding - windowDim)/poolingStride;
+    // according to the cuDNN Library reference, get pooling size as followed:
+    // outputDim = 1 + (inputDim + 2*padding - windowDim)/poolingStride;
 
     int pooled_w = 1 + (width + (pad+pad) - windowWidth)/stride;
     int pooled_h = 1 + (height + (pad+pad) - windowHeight)/stride;
 
-    PVariable r = PVariable(obj_construct(this, depth * pooled_w * pooled_h, batch_num), obj_destroy);
+    PVariable r = variable_construct_for_function(this, depth * pooled_w * pooled_h, batch_num);
 
-    cuMat pooled = x->data.pooling(batch_num, width, height, depth, windowWidth, windowHeight, stride, stride, pad, pad, pad, pad);
 
-    r->data = pooled;
+    for(int i=0; i<batch_num; i++) {
+        int data_index = i*(depth * width * height);
+        float *one_m = x->data.mDevice + data_index;
+        cuMat one_m_dev(width * height, depth);
+        //cuMat one_m_dev(width * height * depth, 1);
+        one_m_dev.memSetDevice(one_m);
+        cuMat pooled = one_m_dev.pooling(1, width, height, depth, windowWidth, windowHeight, stride, stride, pad, pad, pad, pad);
+        r->data.memSetDeviceCol(pooled.mDevice, i);
+    }
 
     return r;
 }
@@ -1565,7 +1982,59 @@ void FunctionPooling::backward(cuMat &p_grad, vector<PVariable> &inputs, vector<
     int pooled_w = 1 + (width + (pad+pad) - windowWidth)/stride;
     int pooled_h = 1 + (height + (pad+pad) - windowHeight)/stride;
 
-    cuMat dxr = x->data.pooling_backward(batch_num, p_grad.mDevice, width, height, depth, windowWidth, windowHeight, stride, stride, pad, pad, pad, pad);
+    cuMat dx(width * height * depth, batch_num);
 
-    x->grad += dxr;
+    for(int i=0; i<batch_num; i++) {
+
+        int data_index = i*(depth * pooled_w * pooled_h);
+        float *p_grad_one = p_grad.mDevice + data_index;
+        cuMat p_grad_one_dev(pooled_w * pooled_h, depth);
+        //cuMat p_grad_one_dev(pooled_w * pooled_h * depth, 1);
+        //p_grad_one_dev.memSetDevice(p_grad_one);
+
+        data_index = i*(depth * width * height);
+        float *one_m = x->data.mDevice + data_index;
+        cuMat one_m_dev(width * height, depth);
+        //cuMat one_m_dev(width * height * depth, 1);
+        one_m_dev.memSetDevice(one_m);
+
+
+        cuMat dxr = one_m_dev.pooling_backward(1, p_grad_one_dev.mDevice, width, height, depth, windowWidth, windowHeight, stride, stride, pad, pad, pad, pad);
+
+        dx.memSetDeviceCol(dxr.mDevice, i);
+    }
+
+    x->grad += dx;
+}
+*/
+
+
+PVariable FunctionPooling::forward(vector<PVariable> &inputs, vector<PVariable> &outputs){
+    PVariable x = inputs[0];
+
+    int batch_num = x->data.cols;
+
+    //* according to the cuDNN Library reference, get pooling size as followed:
+    //* outputDim = 1 + (inputDim + 2*padding - windowDim)/poolingStride;
+
+    int pooled_w = 1 + (width + (padding+padding) - windowWidth)/stride;
+    int pooled_h = 1 + (height + (padding+padding) - windowHeight)/stride;
+
+    //PVariable r = variable_construct_for_function(this, depth * pooled_w * pooled_h, batch_num);
+    PVariable r = PVariable(new Variable(this, depth * pooled_w * pooled_h, batch_num));
+
+    r->data = x->data.pooling(batch_num, width, height, depth, windowWidth, windowHeight, stride, stride, padding, padding, padding, padding);
+    return r;
+}
+
+void FunctionPooling::backward(cuMat &p_grad, vector<PVariable> &inputs, vector<PVariable> &outputs){
+
+    PVariable x = inputs[0];
+
+    int batch_num = x->data.cols;
+
+    int pooled_w = 1 + (width + (padding+padding) - windowWidth)/stride;
+    int pooled_h = 1 + (height + (padding+padding) - windowHeight)/stride;
+
+    x->grad = x->data.pooling_backward(batch_num, p_grad.mDevice, width, height, depth, windowWidth, windowHeight, stride, stride, padding, padding, padding, padding);
 }

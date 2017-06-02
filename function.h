@@ -130,10 +130,11 @@ public:
     cuMat i1;
 
     bool noBias = false;
+    bool isTranspose = false;
 
     FunctionLinear();
-    FunctionLinear(Variable *w, Variable *b);
-    FunctionLinear(Variable *w);
+    FunctionLinear(Variable *w, Variable *b, bool isTranspose =false);
+    FunctionLinear(Variable *w, bool isTranspose = false);
     FunctionLinear(int output_size, int input_size);
     FunctionLinear(int output_size, int input_size, bool no_bias);
     //~FunctionLinear();
@@ -151,9 +152,49 @@ private:
         ar & b;
         ar & i1;
         ar & noBias;
+        ar & isTranspose;
     }
 
 };
+
+
+class FunctionSparseLinear : public Function {
+public:
+    Variable *w;
+    Variable *b;
+    cuMat i1;
+
+    bool noBias = false;
+
+    float beta;
+    float p;
+    Variable *ph;
+
+    FunctionSparseLinear();
+    FunctionSparseLinear(Variable *w, Variable *b, float beta, float p, Variable *ph);
+    FunctionSparseLinear(Variable *w, float beta, float p, Variable *ph);
+
+    PVariable forward(vector<PVariable> &inputs, vector<PVariable> &outputs);
+    void backward(cuMat &p_grad, vector<PVariable> &inputs, vector<PVariable> &outputs);
+    void toHostArray();
+    void fromHostArray();
+    
+private:
+    friend class boost::serialization::access;
+    template<class Archive> void serialize(Archive & ar, const unsigned int version) {
+
+        ar & boost::serialization::base_object<Function>(*this);
+        ar & w;
+        ar & b;
+        ar & i1;
+        ar & noBias;
+        ar & beta;
+        ar & p;
+        ar & ph;
+    }
+
+};
+
 
 class FunctionEmbed: public Function {
 
@@ -263,7 +304,7 @@ class FunctionDropout: public Function {
 public:
     PVariable rr = NULL;
     PVariable rr2 = NULL;
-    float p = 0;
+    float p = 0.0;
 
     FunctionDropout(float p);
     PVariable forward(vector<PVariable> &inputs, vector<PVariable> &outputs);
@@ -343,13 +384,17 @@ class FunctionBatchNorm: public Function {
 public:
     Variable *gamma, *beta;
 
-    cuMat xhat, rmu, xmu, ivar, sqrtvar, var;
+    //cuMat xhat, rmu, xmu, ivar, sqrtvar, var;
+    vector<cuMat> xhat, rmu, xmu, ivar, sqrtvar, var;
 
     bool is_train = true;
     Variable *x_mean, *x_var;
 
+    int element_size, channel_num;
+
+
 public:
-    FunctionBatchNorm(Variable *gamma, Variable *beta, Variable *x_mean, Variable *x_var);
+    FunctionBatchNorm(int element_size, int channel_num, Variable *gamma, Variable *beta, Variable *x_mean, Variable *x_var);
 
     PVariable forward(vector<PVariable> &inputs, vector<PVariable> &outputs);
 
@@ -362,16 +407,17 @@ class FunctionConv2D: public Function {
 public:
     Variable *w, *b;
 
-    int batch_num, channel_num, w_size, h_size, filter_size, filter_num;
+    int batch_num, channel_num, w_size, h_size, filter_size, filter_num,  stride, padding;
 
     int outputDim_w, outputDim_h;
 
     vector<cuMat> cols;
 
-public:
-    FunctionConv2D(Variable *w, Variable *b, int batch_num, int channel_num, int w_size, int h_size, int filter_size, int filter_num);
+    Variable *ones;
 
-    //~FunctionConv2D();
+    FunctionConv2D(Variable *w, Variable *b, int batch_num, int channel_num, int w_size, int h_size, int filter_size, int filter_num,  int stride, int padding);
+
+    ~FunctionConv2D();
 
     PVariable forward(vector<PVariable> &inputs, vector<PVariable> &outputs);
 
@@ -380,6 +426,15 @@ public:
 
     cuMat forward_one(cuMat &data);
     cuMat backward_one(cuMat &data, cuMat &p_grad);
+
+private:
+    friend class boost::serialization::access;
+    template<class Archive> void serialize(Archive & ar, const unsigned int version) {
+
+        ar & boost::serialization::base_object<Function>(*this);
+        ar & ones;
+    }
+
 };
 
 
@@ -387,9 +442,9 @@ class FunctionPooling: public Function {
 
 public:
 
-    int width, height, depth, windowWidth, windowHeight;
+    int width, height, depth, windowWidth, windowHeight,  stride, padding;
 
-    FunctionPooling(int width, int height, int depth, int windowWidth, int windowHeight);
+    FunctionPooling(int width, int height, int depth, int windowWidth, int windowHeight, int stride, int padding);
 
     PVariable forward(vector<PVariable> &inputs, vector<PVariable> &outputs);
 

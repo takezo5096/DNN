@@ -85,6 +85,14 @@ void Dataset::standrize(vector<vector<float> > *s) {
     }
 }
 
+void Dataset::normalize(vector<vector<float> > *s, float max){
+    for (int i = 0; i < (*s).size(); i++) {
+        for (int j = 0; j < (*s)[0].size(); j++) {
+            (*s)[i][j] /= max;
+        }
+    }
+}
+
 /*
  void Dataset::createMiniBatch(vector<vector<float> >s, vector<float>d,
  float *X, float *D, int batchSize, int d_size, int l){

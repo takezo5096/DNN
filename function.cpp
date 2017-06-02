@@ -640,7 +640,6 @@ void FunctionEmbed::fromHostArray(){
 
 
 
-
 FunctionReLU::FunctionReLU() : Function() {
     name = "FunctionReLU";
 }

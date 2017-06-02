@@ -21,6 +21,7 @@
 #include "optimizer_sgd_moment.h"
 #include "word_embed.h"
 
+
 using namespace std;
 
 MallocCounter mallocCounter;

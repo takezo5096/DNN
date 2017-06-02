@@ -1,534 +1,318 @@
+#include <list>
 #include <vector>
 #include <iostream>
-#include <chrono>
+#include <iomanip>
 #include <algorithm>
-#include <functional>
+#include <chrono>
 
-#include <sys/resource.h>
+#include "png.h"
 
-#include <sstream>
 
+//#include "function.h"
 #include "graph.h"
 #include "variable.h"
 #include "model.h"
+#include "dataset.h"
 #include "batchdata.h"
+#include "iris.h"
+#include "mnist.h"
+//#include "autoencoder.h"
 #include "optimizer_adam.h"
-#include "optimizer_sgd.h"
 #include "optimizer_sgd_moment.h"
-#include "optimizer_adagrad.h"
 #include "word_embed.h"
 
 using namespace std;
 
 MallocCounter mallocCounter;
 
+void write_png(const char *file_name, unsigned char **image, int WIDTH, int HEIGHT)
+{
+    FILE            *fp;
+    png_structp     png_ptr;
+    png_infop       info_ptr;
+
+    fp = fopen(file_name, "wb");                            // まずファイルを開きます
+    png_ptr = png_create_write_struct(                      // png_ptr構造体を確保・初期化します
+            PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    info_ptr = png_create_info_struct(png_ptr);             // info_ptr構造体を確保・初期化します
+    png_init_io(png_ptr, fp);                               // libpngにfpを知らせます
+    png_set_IHDR(png_ptr, info_ptr, WIDTH, HEIGHT,          // IHDRチャンク情報を設定します
+                 8, PNG_COLOR_TYPE_GRAY, PNG_INTERLACE_NONE,
+                 PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
+    png_write_info(png_ptr, info_ptr);                      // PNGファイルのヘッダを書き込みます
+    png_write_image(png_ptr, image);                        // 画像データを書き込みます
+    png_write_end(png_ptr, info_ptr);                       // 残りの情報を書き込みます
+    png_destroy_write_struct(&png_ptr, &info_ptr);          // ２つの構造体のメモリを解放します
+    fclose(fp);                                             // ファイルを閉じます
+    return;
+}
 
 
-void toPVariable(PVariable x1, float *X){
+void col2png(string png_name, float *col, int width, int height, float scale){
+
+    float min = 999;
+    float max = 0;
+    for(int i=0; i<width*height; i++){
+        if (col[i] < min) min = col[i];
+        if (col[i] > max) max = col[i];
+    }
+    for(int i=0; i<width*height; i++) {
+        col[i] = (col[i]-min)/(max - min);
+    }
+
+    unsigned char **image = (png_bytepp)malloc(height * sizeof(png_bytep));
+
+    for (int j = 0; j < width; j++)
+        image[j] = (png_bytep)malloc(width * sizeof(png_byte));
+    for (int i = 0; i < width; i++) {
+        for (int j = 0; j < height; j++) {
+            unsigned char val = col[i*height + j] * scale;
+            image[i][j] = val;
+        }
+    }
+
+    write_png(png_name.c_str(), image, width, height);
+
+    for (int j = 0; j < height; j++) free(image[j]);
+    free(image);
+}
+
+
+
+void asMatrix(PVariable x1, float *X){
     x1->data.memSetHost(X);
 }
 
 
+float getAccurecy(Graph *g_softmax, PVariable h, PVariable d, int batchSize){
+    PVariable y = ((Softmax *)g_softmax)->forward(h);
 
-WordEmbed *load_data(string filename, int vocab_size, bool addEOS, bool addSOS){
+    int maxIdx[batchSize];
+    //y->data.maxRowIndex(maxIdx);
+    h->data.maxRowIndex(maxIdx);
 
+    int maxIdx_d[batchSize];
+    d->data.maxRowIndex(maxIdx_d);
 
-    std::ifstream reading_file(filename, std::ios::in);
-
-    std::string reading_line_buffer;
-
-
-    vector<string> sequences;
-    while (!reading_file.eof()) {
-        // read by line
-        std::getline(reading_file, reading_line_buffer);
-
-        //std::cout << reading_line_buffer << std::endl;
-
-        sequences.push_back(reading_line_buffer);
+    int hit = 0;
+    for(int i=0; i<batchSize; i++){
+        if (maxIdx_d[i] == maxIdx[i]) hit++;
     }
-
-    WordEmbed *wd = new WordEmbed(vocab_size);
-
-    wd->addSentences(sequences, false, addEOS, addSOS);
-
-    return wd;
+    float accurecy = ((float)hit) / ((float) batchSize);
+    return accurecy;
 }
 
+PVariable forward_one_step(Model &model, PVariable x1, bool is_train) {
 
-void makeRandomSeqs(vector<vector<int>> &seqs_ids_ja, vector<vector<int>> &seqs_ids_en){
 
-    srand(time(0));
+    //de-noising
+    PVariable v = x1;
+    PVariable rand = PVariable(new Variable(v->data.rows, v->data.cols));
+    //rand->randoms(0., sqrt((0.5/(float)v->data.rows)));
+    //v->data += rand->data;
 
-    vector<pair<vector<int>, vector<int>>> seqs;
+    //rand->binominal_randoms(0.5);
+    //v->data *= rand->data;
 
-    for(int i=0; i<seqs_ids_ja.size(); i++) {
-        seqs.push_back(make_pair(seqs_ids_ja[i], seqs_ids_en[i]));
-    }
-    random_shuffle(seqs.begin(), seqs.end());
+    PVariable h1 = model.G("slinear")->forward(v);
+    //PVariable h1 = model.G("sig")->forward(model.G("slinear")->forward(v));
+    PVariable h2 = model.G("linear")->forward(h1);
 
-    seqs_ids_ja.clear();
-    seqs_ids_en.clear();
-    for (auto v : seqs){
-        seqs_ids_ja.push_back(v.first);
-        seqs_ids_en.push_back(v.second);
-    }
+    return h2;
 }
 
-void sortSeqs(vector<vector<int>> &seqs_ids_ja, vector<vector<int>> &seqs_ids_en) {
+float test_accurecy(Model &model, vector<BatchData *> &bds_test, int i_size, int o_size, int totalTestSize, int batchSize){
+    float accurecy = 0.0;
+    int predict_epoch = totalTestSize/batchSize;
+    for(int i=0; i<predict_epoch; i++){
 
-    vector<pair<int, int>> en_seq_size;
-    for (int i = 0; i < seqs_ids_en.size(); i++) {
-        int len = seqs_ids_en[i].size();
-        en_seq_size.push_back(make_pair(len, i));
-    }
-    sort(en_seq_size.begin(), en_seq_size.end());
+        std::random_shuffle(bds_test.begin(), bds_test.end());
 
-    vector<vector<int>> tmp_ja = seqs_ids_ja;
-    vector<vector<int>> tmp_en = seqs_ids_en;
+        PVariable x1(new Variable(i_size, batchSize));
+        PVariable d(new Variable(o_size, batchSize));
 
-    seqs_ids_ja.clear();
-    seqs_ids_en.clear();
+        // create mini-batch =========================
+        float *X = bds_test.at(i)->getX();
+        float *D = bds_test.at(i)->getD();
+        asMatrix(x1, X);
+        asMatrix(d, D);
 
-    for (auto a : en_seq_size){
-        //cout << a.first << " " << a.second << endl;
-        int id = a.second;
+        // forward ------------------------------------------
+        PVariable h3 = forward_one_step(model, x1, false);
 
-        seqs_ids_ja.push_back(tmp_ja[id]);
-        seqs_ids_en.push_back(tmp_en[id]);
-    }
-}
+        accurecy += getAccurecy(model.G("g_softmax"), h3, d, batchSize);
 
-Model model;
-
-
-
-// attention ////////////////
-cuMat total_similarity(PVariable h, vector<PVariable> src_hidden_states){
-    cuMat total_values(1, h->data.cols);
-    for(int i=0; i<src_hidden_states.size(); i++) {
-        total_values += (h->data.dot_product(src_hidden_states[i]->data)).exp();
-    }
-
-    return total_values;
-}
-
-
-cuMat cal_attention_score(PVariable h, PVariable s, cuMat &total_similarity_values){
-
-    cuMat current_value = h->data.dot_product(s->data);
-
-    cuMat alpha =  current_value.exp() / total_similarity_values;
-    return alpha;
-}
-
-PVariable cal_attention_vector(PVariable h, vector<PVariable> src_hidden_states){
-
-    cuMat total_similarity_values = total_similarity(h, src_hidden_states);
-
-    PVariable a(new Variable(h->data.rows, h->data.cols, false));
-
-    for(int i=0; i<src_hidden_states.size(); i++){
-        cuMat alpha = cal_attention_score(h, src_hidden_states[i], total_similarity_values);
-
-        a->data += src_hidden_states[i]->data.mat_vec_mul(alpha, 1);
-    }
-
-    return a;
-}
-
-PVariable attention_hidden_state(PVariable h, PVariable a){
-
-    PVariable attention_plus = model.G("attention_plus")->forward(model.G("attention_w_h_linear")->forward(h), model.G("attention_w_a_linear")->forward(a));
-
-    return model.G("attention_linear_tanh")->forward(attention_plus);
-}
-///////////////////////////
-
-
-int get_max_vocab_size(vector<vector<int>> &seqs_ids, int batch_size, int k){
-    int max_size = 0;
-    for (int i = k * batch_size; i < k * batch_size + batch_size; i++) {
-        if (max_size < seqs_ids[i].size()) max_size = seqs_ids[i].size();
-    }
-    return max_size;
-}
-
-
-vector<PVariable> encoder(vector<vector<int>> &seqs_ids_ja, WordEmbed *wd_ja, int batch_size, int vocab_size, int k){
-
-    int max_vocab_size_ja = get_max_vocab_size(seqs_ids_ja, batch_size, k);
-    //cout << "max_vocab_size_ja:" << max_vocab_size_ja << endl;
-
-
-    vector<PVariable> src_hidden_states;
-
-    for (int j = 0; j < max_vocab_size_ja; j++) {
-
-        float data_ja[vocab_size * batch_size];
-
-        int batch_idx = 0;
-        for (int i = k * batch_size; i < k * batch_size + batch_size; i++) {
-            vector<int> word_ids = seqs_ids_ja[i];
-
-            wd_ja->padding(word_ids, max_vocab_size_ja);
-
-            reverse(word_ids.begin(), word_ids.end());
-
-            bool ignore = false;
-            //if (word_ids[j] == wd_ja->PAD_ID) ignore = true;
-            wd_ja->toOneHot(vocab_size, data_ja, word_ids[j], batch_idx, ignore);
-            batch_idx++;
-        }
-
-        PVariable x(new Variable(vocab_size, batch_size, false));
-        toPVariable(x, data_ja);
-
-        PVariable embed = model.G("embed_ja")->forward(x);
-        PVariable tanh_ja = model.G("tanh_ja")->forward(embed);
-        PVariable h = model.G("lstm_ja")->forward(tanh_ja);
-        //PVariable h = model.G("tanh_ja2")->forward(tmp);
-
-        src_hidden_states.push_back(h);
-    }
-
-
-    //connect ENCODER and DECODER
-    ((FullLSTM2 *)model.G("lstm_ja"))->is_last_backward = true;
-    ((FullLSTM2 *)model.G("lstm_en"))->h = ((FullLSTM2 *)model.G("lstm_ja"))->h;
-    ((FullLSTM2 *)model.G("lstm_en"))->h->is_last_backward = &((FullLSTM2 *)model.G("lstm_en"))->is_last_backward;
-
-    return src_hidden_states;
-}
-
-
-vector<int> predict(vector<vector<int>> &seqs_ids_ja, vector<vector<int>> &seqs_ids_en,
-                           WordEmbed *wd_ja, WordEmbed *wd_en,
-                           int vocab_size, int k){
-
-    int batch_size = 1;
-
-    vector<int> predict_word_ids;
-
-    // ENCODER /////////////////////////////////////////////
-    vector<PVariable> src_hidden_states = encoder(seqs_ids_ja, wd_ja, batch_size, vocab_size, k);
-
-
-    // DECODER /////////////////////////////////////////////
-    int max_vocab_size_en = get_max_vocab_size(seqs_ids_en, batch_size, k);
-
-    PVariable loss_sum(new Variable(1, 1));
-
-    float data_en[vocab_size * batch_size];
-    PVariable t(new Variable(vocab_size, batch_size, false));
-
-    for (int i = 0; i < batch_size; i++) {
-        wd_en->toOneHot(vocab_size, data_en, wd_en->SOS_ID, i, false);
-    }
-    toPVariable(t, data_en);
-
-    int max_loop = 100;
-    for (int j = 0; j < max_loop; j++) {
-
-        PVariable embed_en = model.G("embed_en")->forward(t);
-        PVariable tanh_en = model.G("tanh_en")->forward(embed_en);
-        PVariable state_en = model.G("lstm_en")->forward(tanh_en);
-        //PVariable state_en = model.G("tanh_en2")->forward(state_en_tmp);
-
-        // attention //////////
-        PVariable a = cal_attention_vector(state_en, src_hidden_states);
-        PVariable state_en_attention = attention_hidden_state(state_en, a);
-        //////////////////////
-
-        PVariable linear_in1 = model.G("linear_in1")->forward(state_en_attention);
-        PVariable linear_in2 = model.G("tanh1")->forward(linear_in1);
-        PVariable in = model.G("linear_in2")->forward(linear_in2);
-
-        PVariable softmax = model.G("softmax")->forward(in);
-
-        int maxIdx[batch_size]; //batch_size is 1
-        softmax->data.maxRowIndex(maxIdx);
-
-        if (maxIdx[0] == wd_en->EOS_ID){
-            break;
-        }
-
-        predict_word_ids.push_back(maxIdx[0]);
-
-        wd_en->toOneHot(vocab_size, data_en, maxIdx[0], 0, false);
-
-        PVariable t2(new Variable(vocab_size, batch_size, false));
-        toPVariable(t2, data_en);
-
-
-        /*
-        //input feeding //////////
-        // http://www.aclweb.org/anthology/D15-1166
-        PVariable t3(new Variable(vocab_size, batch_size, false));
-        t3->data = t2->data;
-        PVariable in2(new Variable(vocab_size, batch_size, false));
-        in2->data = in->data;
-        PVariable t4 = model.G("input_feeding_plus")->forward(model.G("input_feeding_linear")->forward(in2), t3);
-         t = t4;
-        //////////////////////////
-        */
-        t = t2;
+        model.zero_grads();
+        model.unchain();
 
     }
 
-    return predict_word_ids;
-}
-
-
-PVariable forward_one_step(vector<vector<int>> &seqs_ids_ja, vector<vector<int>> &seqs_ids_en,
-                           WordEmbed *wd_ja, WordEmbed *wd_en,
-                           int batch_size, int vocab_size, int k, float *loss_val){
-
-    // ENCODER /////////////////////////////////////////////
-    vector<PVariable> src_hidden_states = encoder(seqs_ids_ja, wd_ja, batch_size, vocab_size, k);
-
-    // DECODER /////////////////////////////////////////////
-    int max_vocab_size_en = get_max_vocab_size(seqs_ids_en, batch_size, k);
-    //cout << "max_vocab_size_en:" << max_vocab_size_en << endl;
-
-    PVariable loss_sum(new Variable(1, 1));
-
-    float data_en[vocab_size * batch_size];
-    PVariable t(new Variable(vocab_size, batch_size, false));
-
-    for (int i = 0; i < batch_size; i++) {
-        wd_en->toOneHot(vocab_size, data_en, wd_en->SOS_ID, i, false);
-    }
-    toPVariable(t, data_en);
-
-
-    for (int j = 0; j < max_vocab_size_en; j++) {
-
-        PVariable embed_en = model.G("embed_en")->forward(t);
-        PVariable tanh_en = model.G("tanh_en")->forward(embed_en);
-        PVariable state_en = model.G("lstm_en")->forward(tanh_en);
-        //PVariable state_en = model.G("tanh_en2")->forward(state_en_tmp);
-
-        // attention //////////
-        PVariable a = cal_attention_vector(state_en, src_hidden_states);
-        PVariable state_en_attention = attention_hidden_state(state_en, a);
-        //////////////////////
-
-        PVariable linear_in1 = model.G("linear_in1")->forward(state_en_attention);
-        PVariable linear_in2 = model.G("tanh1")->forward(linear_in1);
-        PVariable in = model.G("linear_in2")->forward(linear_in2);
-
-
-        int batch_idx = 0;
-        for (int i = k * batch_size; i < k * batch_size + batch_size; i++) {
-            vector<int> word_ids = seqs_ids_en[i];
-
-            wd_en->padding(word_ids, max_vocab_size_en);
-
-            bool ignore = false;
-            //if (word_ids[j] == wd_en->PAD_ID) ignore = true;
-            wd_en->toOneHot(vocab_size, data_en, word_ids[j], batch_idx, ignore);
-            batch_idx++;
-        }
-        PVariable t2(new Variable(vocab_size, batch_size, false));
-        toPVariable(t2, data_en);
-
-        PVariable loss = model.G("softmax_cross_entropy_en")->forward(in, t2);
-
-        *loss_val += loss->val();
-
-        loss_sum = model.G("plus_en")->forward(loss_sum, loss);
-
-
-
-        /*
-        //input feeding //////
-        // http://www.aclweb.org/anthology/D15-1166
-        PVariable t3(new Variable(vocab_size, batch_size, false));
-        t3->data = t2->data;
-        PVariable in2(new Variable(vocab_size, batch_size, false));
-        in2->data = in->data;
-        PVariable t4 = model.G("input_feeding_plus")->forward(model.G("input_feeding_linear")->forward(in2), t3);
-         t = t4;
-        //////////////////////
-        */
-        t = t2;
-    }
-
-    *loss_val /= max_vocab_size_en;
-
-    return loss_sum;
+    return accurecy/((float)predict_epoch);
 }
 
 
 int main(){
 
-    int batch_size = 64;
+    int epochNums = 100;
+
+    int batchSize = 100;
+    int i_size = 784;
+    //int n_size = 1024;
+    int n_size = 100;
+    int o_size = 10;
+    float learning_rate = 0.001;
+    float dropout_p = 0.5;
+
+    cout << "init dataset..." << endl;
+    vector<vector<float>> train_data, test_data;
+    vector<float> label_data, label_test_data;
+
+
+    Mnist mnist, mnist_test;
+    train_data = mnist.readTrainingFile("train-images-idx3-ubyte");
+    label_data = mnist.readLabelFile("train-labels-idx1-ubyte");
+    test_data = mnist_test.readTrainingFile("t10k-images-idx3-ubyte");
+    label_test_data = mnist_test.readLabelFile("t10k-labels-idx1-ubyte");
+
+    int totalSampleSize = train_data.size();
+    int totalTestSize = test_data.size();
+
+    Dataset *dataset = new Dataset();
+    dataset->normalize(&train_data, 255);
+    //dataset->standrize(&train_data);
+    vector<BatchData *> bds;
+    for(int i=0; i<totalSampleSize/batchSize; i++){
+        BatchData *bdata = new BatchData(i_size, o_size, batchSize);
+        dataset->createMiniBatch(train_data, label_data, bdata->getX(), bdata->getD(), batchSize, o_size, i);
+        bds.push_back(bdata);
+    }
+    //dataset->standrize(&test_data);
+    dataset->normalize(&test_data, 255);
+    vector<BatchData *> bds_test;
+    for(int i=0; i<totalTestSize/batchSize; i++){
+        BatchData *bdata = new BatchData(i_size, o_size, batchSize);
+        dataset->createMiniBatch(test_data, label_test_data, bdata->getX(), bdata->getD(), batchSize, o_size, i);
+        bds_test.push_back(bdata);
+    }
+
+    std::chrono::system_clock::time_point  start, end;
+
+    cout << "create model..." << endl;
+    Model model;
+
+
+    SparseLinear *ln = new SparseLinear(n_size, i_size, false, 0.9, 0.1, 0.05);
+    //Linear *ln = new Linear(n_size, i_size);
+    model.putG("slinear", ln);
+    model.putG("linear", new Linear(ln->w, true));
+
 
     /*
-     int vocab_size = 1000;
-    int embed_size = 200;
-    int h_size = 400;
+    //model.putG("slinear", new SparseLinear(n_size, i_size, false, 0.9, 3.0, 0.05));
+    model.putG("slinear", new Linear(n_size, i_size));
+    model.putG("linear", new Linear(i_size, n_size));
     */
-    int vocab_size = 10000;
-    int embed_size = 200;
-    int h_size = 400;
+    //model.putG("sig", new Sigmoid());
+    model.putG("sig", new ReLU());
+    model.putG("mse", new MeanSquaredError());
 
-
-    float clip_grad_threshold = 0;
-    float learning_rate = 0.001; //ADAM
-    //float learning_rate = 0.0001; //SDG
-    //float learning_rate = 0.01; //ADAGRAD
-
-    //int epoch = 300;
-    int epoch = 100;
-
-
-    //WordEmbed *wd_ja = load_data("train10000.ja", vocab_size, false, false);
-    //WordEmbed *wd_en = load_data("train10000.en", vocab_size, true, false);
-    //WordEmbed *wd_ja = load_data("wikipedia_kyoto_ROD.ja", vocab_size, false, false);
-    //WordEmbed *wd_en = load_data("wikipedia_kyoto_ROD.en", vocab_size, true, false);
-    WordEmbed *wd_ja = load_data("tanaka_corpus_j_10000.txt", vocab_size, false, false);
-    WordEmbed *wd_en = load_data("tanaka_corpus_e_10000.txt", vocab_size, true, false);
-
-    vector<vector<int>> seqs_ids_ja = wd_ja->getSequencesIds();
-    vector<vector<int>> seqs_ids_en = wd_en->getSequencesIds();
-
-    if (seqs_ids_ja.size() != seqs_ids_en.size()){
-        cout << "no match seq numbers:" << "ja:" << seqs_ids_ja.size() << " en:" << seqs_ids_en.size() << endl;
-        exit(1);
-    }
-
-    cout << "ja word_count:" << wd_ja->getWordCount() << endl;
-    cout << "en word_count:" << wd_en->getWordCount() << endl;
-
-
-    model.putG("embed_ja", new Linear(embed_size, vocab_size));
-    model.putG("tanh_ja", new Tanh());
-    model.putG("lstm_ja", new FullLSTM2(h_size, embed_size));
-
-
-    model.putG("embed_en", new Linear(embed_size, vocab_size));
-    model.putG("tanh_en", new Tanh());
-    model.putG("lstm_en", new FullLSTM2(h_size, embed_size));
-
-
-    model.putG("linear_in1", new Linear(embed_size, h_size));
-    model.putG("tanh1", new Tanh());
-    model.putG("linear_in2", new Linear(vocab_size, embed_size));
-
-    model.putG("softmax_cross_entropy_en", new SoftmaxCrossEntropy());
-    model.putG("plus_en", new Plus());
-
-    model.putG("softmax", new Softmax());
-
-
-
-    //attention ///////////
-    model.putG("attention_w_h_linear", new Linear(h_size, h_size, false));
-    model.putG("attention_w_a_linear", new Linear(h_size, h_size, true));
-    model.putG("attention_plus", new Plus());
-    model.putG("attention_linear_tanh", new Tanh());
-
-    ///////////////////////
-
-
-
-    OptimizerAdam optimizer(&model, learning_rate, clip_grad_threshold);
-    //OptimizerSGDMoment optimizer(&model, learning_rate, 0.7);
-    //OptimizerAdagrad optimizer(&model, learning_rate, clip_grad_threshold);
+    OptimizerAdam optimizer(&model, learning_rate);
     optimizer.init();
 
+    float loss_mean = 0.0;
+    float accurecy_mean = 0.0;
+    float test_acc = 0.0;
 
-    int step = seqs_ids_ja.size() / batch_size;
-    cout << "seqs_ids_ja.size():" << seqs_ids_ja.size() << " step:" << step << endl;
+    cout << "start training ..." << endl;
+    for(int k=0; k<epochNums; k++){
 
-    //sortSeqs(seqs_ids_ja, seqs_ids_en);
+        std::random_shuffle(bds.begin(), bds.end());
 
-    float loss_total = 0;
+        float sum_loss = 0.0;
+        float accurecy = 0.0;
 
-    for(int i=0; i<epoch; i++) {
+        PVariable loss_graph(new Variable(1, 1));
 
-        makeRandomSeqs(seqs_ids_ja, seqs_ids_en);
+        for(int i=0; i<totalSampleSize/batchSize; i++){
 
-        for(int k=0; k<step; k++) {
-            float loss = 0;
+            PVariable x1(new Variable(i_size, batchSize));
+            PVariable d(new Variable(o_size, batchSize));
 
-            PVariable loss_sum = forward_one_step(seqs_ids_ja, seqs_ids_en, wd_ja, wd_en, batch_size, vocab_size, k, &loss);
+            // create mini-batch =========================
+            float *X = bds.at(i)->getX();
+            float *D = bds.at(i)->getD();
+            asMatrix(x1, X);
+            asMatrix(d, D);
 
-            loss_sum->backward();
+            // forward ------------------------------------------
+            PVariable h3 = forward_one_step(model, x1, true);
+
+            PVariable loss = model.G("mse")->forward(h3, x1);
+
+            // loss ---------------------------------------------
+            sum_loss += loss->val();
+
+            // backward -----------------------------------------
+            loss->backward();
+
+            // update -------------------------------------------
             optimizer.update();
-            model.zero_grads();
+
+
+            //accurecy += getAccurecy(model.G("g_softmax"), h3, d, batchSize);
+
             model.unchain();
-//exit(0);
-            //((FullLSTM *) model.G("lstm_ja"))->reset_state();
-            //((FullLSTM *) model.G("lstm_en"))->reset_state();
-            //((GRU *) model.G("lstm_ja"))->reset_state();
-            //((GRU *) model.G("lstm_en"))->reset_state();
-            ((FullLSTM2 *) model.G("lstm_ja"))->reset_state();
-            ((FullLSTM2 *) model.G("lstm_en"))->reset_state();
 
-            loss_total += loss;
-
-
-            if (k!=0 && k % 10 == 0) {
-                float test_perp = exp(((float)loss_total)/10.0);
-                float test_loss = ((float)loss_total)/10.0;
-                cout << "epoch:" << (i + 1) << "/" << epoch << " step:" << k
-                     << " perplexity:" << test_perp << " loss:" << test_loss << endl;
-                loss_total = 0;
+            if (i<10) {
+                stringstream png_name, png_name_org;
+                png_name_org << "./images/mnist_org" << i << ".png";
+                png_name << "./images/mnist_" << i << ".png";
+                h3->data.toHostArray();
+                col2png(png_name_org.str(), X + 28 * 28, 28, 28, 255);
+                col2png(png_name.str(), h3->data.mHost + 28 * 28, 28, 28, 255);
             }
         }
+
+        cuMat tmp_image = ((Linear *)model.G("slinear"))->w->data.transpose();
+        tmp_image.toHostArray();
+        //cout << tmp_image.rows << ", " << tmp_image.cols << endl;
+        for(int i=0; i<100; i++) {
+            stringstream png_name;
+            png_name << "./images/hoge_" << i << ".png";
+            col2png(png_name.str(), tmp_image.mHost + i*28*28, 28, 28, 255);
+        }
+
+
+
+        loss_mean += sum_loss/((float)totalSampleSize/batchSize);
+        //accurecy_mean += accurecy/((float)totalSampleSize/batchSize);
+        //test_acc += test_accurecy(model, bds_test, i_size, o_size, totalTestSize, batchSize);
+        cout << k << "," << loss_mean << endl;
+        //cout << loss_mean << "," << accurecy_mean << "," << test_acc << endl;
+
+        loss_mean = 0.0;
+        accurecy_mean = 0.0;
+        test_acc = 0.0;
+
+        /*
+        if (k!=0 && k % 50 == 0) {
+            cout << accurecy_mean/50.0 << "," << test_acc/50.0 << endl;
+            loss_mean = 0.0;
+            accurecy_mean = 0.0;
+            test_acc = 0.0;
+        }*/
     }
 
 
-    cout << "saving model" << endl;
-    model.save("seq2seq.model");
+    //cout << "saving model..." << endl;
+    //model.save("mlp_test.model");
 
 
-    //cout << "loading model" << endl;
-    //model.load("seq2seq.model");
 
-    cout << "predict" << endl;
-    for (int target_seq_id=0; target_seq_id<300; target_seq_id++) {
-        vector<int> predict_word_ids = predict(seqs_ids_ja, seqs_ids_en, wd_ja, wd_en, vocab_size, target_seq_id);
-
-        vector<int> word_ids_ja = seqs_ids_ja[target_seq_id];
-        vector<int> word_ids_en = seqs_ids_en[target_seq_id];
-
-        for (auto word_id : word_ids_ja) {
-            string w = wd_ja->toWord(word_id);
-            //cout << word_id << ":" << w << " ";
-            cout << w << " ";
-        }
-        cout << endl;
-        for (auto word_id : word_ids_en) {
-            string w = wd_en->toWord(word_id);
-            //cout << word_id << ":" << w << " ";
-            cout << w << " ";
-        }
-        cout << endl;
-
-        for (auto word_id : predict_word_ids) {
-            string w = wd_en->toWord(word_id);
-            //cout << word_id << ":" << w << " ";
-            cout << w << " ";
-        }
-        cout << endl;
-        cout << "----------------------------------------------------" << endl;
-
-        model.unchain();
-
-        //((FullLSTM *) model.G("lstm_ja"))->reset_state();
-        //((FullLSTM *) model.G("lstm_en"))->reset_state();
-        //((GRU *) model.G("lstm_ja"))->reset_state();
-        //((GRU *) model.G("lstm_en"))->reset_state();
-        ((FullLSTM2 *) model.G("lstm_ja"))->reset_state();
-        ((FullLSTM2 *) model.G("lstm_en"))->reset_state();
-    }
-
-    delete wd_ja;
-    delete wd_en;
+    //cout << "loading model..." << endl;
+    //Model model_train;
+    //model_train.load("mlp_test.model");
+    //cout << "loaded" << endl;
 
 }
 

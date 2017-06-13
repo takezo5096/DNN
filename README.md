@@ -1,2 +1,17 @@
 # DNN
-export LD_LIBRARY_PATH=../cuMat$LD_LIBRARY_PATH
+cuMatディレクトリが同列にあることを前提
+```bash
+cp test.cpp.[処理の種類]　test.cpp
+make
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../cuMat
+./test
+```
+
+# [処理の種類]
+* autoencoder: オートエンコーダー
+* cnn: 畳み込みニューラルネットワーク
+* iris: IRISデータセットによる層状パーセプトロン
+* lstm.sin:LSTMによるsin波再現
+* mlp:MNISTによる層状パーセプトロン
+* number:LSTMによる数当て
+* seq2seq:LSTMによる翻訳モデル

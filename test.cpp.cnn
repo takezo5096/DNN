@@ -171,12 +171,12 @@ int main(){
     //model.putG("g_batch_norm3", new BatchNorm(1024, 0.999));
 
     // outputDim = 1 + (inputDim + 2*pad - filterDim)/convolutionStride
-    model.putG("g_conv2d1", new Conv2D(batchSize, 1, 28, 28, 5, 32));
-    model.putG("g_conv2d2", new Conv2D(batchSize, 32, 14, 14, 5, 64));
+    model.putG("g_conv2d1", new Conv2D(batchSize, 1, 28, 28, 5, 32, 1, 2));
+    model.putG("g_conv2d2", new Conv2D(batchSize, 32, 14, 14, 5, 64, 1, 2));
 
     // Pooling(int width, int height, int depth, int windowWidth, int windowHeight)
-    model.putG("g_pooling1", new Pooling(28, 28, 32, 2, 2));
-    model.putG("g_pooling2", new Pooling(14, 14, 64, 2, 2));
+    model.putG("g_pooling1", new Pooling(28, 28, 32, 2, 2, 2, 0));
+    model.putG("g_pooling2", new Pooling(14, 14, 64, 2, 2, 2, 0));
 
 
     // Prepare optimizer

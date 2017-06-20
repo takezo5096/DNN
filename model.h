@@ -1,8 +1,6 @@
 /*
  * function_set.h
  *
- *  Created on: 2016/01/06
- *      Author: takeshi.fujita
  */
 
 
@@ -20,7 +18,6 @@
 #include <boost/archive/binary_oarchive.hpp>
 #include <boost/archive/binary_iarchive.hpp>
 
-//#include "function.h"
 #include "variable.h"
 #include "graph.h"
 
@@ -166,7 +163,6 @@ public:
 
 
         }
-        //cout << " Model getUpdateParams size:" << updateParams.size() << endl;
         return updateParams;
     }
 

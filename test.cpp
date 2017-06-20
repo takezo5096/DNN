@@ -8,7 +8,6 @@
 #include "png.h"
 
 
-//#include "function.h"
 #include "graph.h"
 #include "variable.h"
 #include "model.h"
@@ -16,15 +15,17 @@
 #include "batchdata.h"
 #include "iris.h"
 #include "mnist.h"
-//#include "autoencoder.h"
 #include "optimizer_adam.h"
 #include "optimizer_sgd_moment.h"
+#include "optimizer_adagrad.h"
 #include "word_embed.h"
+#include "cifar10.h"
 
 using namespace std;
 
 MallocCounter mallocCounter;
 
+/*
 void write_png(const char *file_name, unsigned char **image, int WIDTH, int HEIGHT)
 {
     FILE            *fp;
@@ -37,7 +38,7 @@ void write_png(const char *file_name, unsigned char **image, int WIDTH, int HEIG
     info_ptr = png_create_info_struct(png_ptr);             // info_ptr構造体を確保・初期化します
     png_init_io(png_ptr, fp);                               // libpngにfpを知らせます
     png_set_IHDR(png_ptr, info_ptr, WIDTH, HEIGHT,          // IHDRチャンク情報を設定します
-                 8, PNG_COLOR_TYPE_GRAY, PNG_INTERLACE_NONE,
+                 8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
                  PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
     png_write_info(png_ptr, info_ptr);                      // PNGファイルのヘッダを書き込みます
     png_write_image(png_ptr, image);                        // 画像データを書き込みます
@@ -50,34 +51,24 @@ void write_png(const char *file_name, unsigned char **image, int WIDTH, int HEIG
 
 void col2png(string png_name, float *col, int width, int height, float scale){
 
-    float min = 999;
-    float max = 0;
-    for(int i=0; i<width*height; i++){
-        if (col[i] < min) min = col[i];
-        if (col[i] > max) max = col[i];
-    }
-    for(int i=0; i<width*height; i++) {
-        col[i] = (col[i]-min)/(max - min);
-    }
-
     unsigned char **image = (png_bytepp)malloc(height * sizeof(png_bytep));
 
     for (int j = 0; j < width; j++)
-        image[j] = (png_bytep)malloc(width * sizeof(png_byte));
-    for (int i = 0; i < width; i++) {
-        for (int j = 0; j < height; j++) {
-            unsigned char val = col[i*height + j] * scale;
-            image[i][j] = val;
+        image[j] = (png_bytep)malloc(width * sizeof(png_byte)*3);
+    for (int i = 0; i < height; i++) {
+        for (int j = 0; j < width; j++) {
+            image[i][j*3] = (unsigned char) col[i*width + j*3] * scale;
+            image[i][j*3+1] = (unsigned char) col[i*width + j*3+1] * scale;
+            image[i][j*3+2] = (unsigned char) col[i*width + j*3+2] * scale;
         }
     }
 
     write_png(png_name.c_str(), image, width, height);
 
-    for (int j = 0; j < height; j++) free(image[j]);
+    for (int j = 0; j < width; j++) free(image[j]);
     free(image);
 }
-
-
+*/
 
 void asMatrix(PVariable x1, float *X){
     x1->data.memSetHost(X);
@@ -87,107 +78,132 @@ void asMatrix(PVariable x1, float *X){
 float getAccurecy(Graph *g_softmax, PVariable h, PVariable d, int batchSize){
     PVariable y = ((Softmax *)g_softmax)->forward(h);
 
-    int maxIdx[batchSize];
-    //y->data.maxRowIndex(maxIdx);
-    h->data.maxRowIndex(maxIdx);
+    int maxIdx_z3[batchSize];
+    y->data.maxRowIndex(maxIdx_z3);
 
     int maxIdx_d[batchSize];
     d->data.maxRowIndex(maxIdx_d);
 
     int hit = 0;
     for(int i=0; i<batchSize; i++){
-        if (maxIdx_d[i] == maxIdx[i]) hit++;
+        if (maxIdx_d[i] == maxIdx_z3[i]) hit++;
     }
     float accurecy = ((float)hit) / ((float) batchSize);
     return accurecy;
 }
 
+
 PVariable forward_one_step(Model &model, PVariable x1, bool is_train) {
 
+    ((Dropout *)model.G("dropout4"))->isTrain(is_train);
 
-    //de-noising
-    PVariable v = x1;
-    PVariable rand = PVariable(new Variable(v->data.rows, v->data.cols));
-    //rand->randoms(0., sqrt((0.5/(float)v->data.rows)));
-    //v->data += rand->data;
+    PVariable h1 = model.G("g_relu1")->forward(model.G("g_conv2d1")->forward(x1));
+    PVariable h2 = model.G("g_relu2")->forward(model.G("g_conv2d2")->forward(h1));
+    PVariable p1 = model.G("g_pooling1")->forward(h2);
 
-    //rand->binominal_randoms(0.5);
-    //v->data *= rand->data;
 
-    PVariable h1 = model.G("slinear")->forward(v);
-    //PVariable h1 = model.G("sig")->forward(model.G("slinear")->forward(v));
-    PVariable h2 = model.G("linear")->forward(h1);
+    PVariable h3 = model.G("g_relu3")->forward(model.G("g_conv2d3")->forward(p1));
+    PVariable h4 = model.G("g_relu4")->forward(model.G("g_conv2d4")->forward(h3));
+    PVariable p2 = model.G("g_pooling2")->forward(h4);
 
-    return h2;
+
+    PVariable h5 = model.G("g_relu5")->forward(model.G("g_conv2d5")->forward(p2));
+    PVariable h6 = model.G("g_relu6")->forward(model.G("g_conv2d6")->forward(h5));
+    PVariable p3 = model.G("g_pooling3")->forward(h6);
+
+    PVariable g1;
+    g1 = model.G("dropout4")->forward(model.G("g_relu7")->forward(model.G("g1")->forward(p3)));
+    PVariable g3 = model.G("g3")->forward(g1);
+
+    return g3;
 }
 
-float test_accurecy(Model &model, vector<BatchData *> &bds_test, int i_size, int o_size, int totalTestSize, int batchSize){
+
+float test_accurecy(Model &model, vector<BatchData *> &bds_test, int i_size, int o_size, int totalTestSize, int batchSize, float *sum_loss){
+
     float accurecy = 0.0;
+
     int predict_epoch = totalTestSize/batchSize;
     for(int i=0; i<predict_epoch; i++){
 
-        std::random_shuffle(bds_test.begin(), bds_test.end());
-
-        PVariable x1(new Variable(i_size, batchSize));
-        PVariable d(new Variable(o_size, batchSize));
+        PVariable x(new Variable(i_size, batchSize, false));
+        PVariable d(new Variable(o_size, batchSize, false));
 
         // create mini-batch =========================
         float *X = bds_test.at(i)->getX();
         float *D = bds_test.at(i)->getD();
-        asMatrix(x1, X);
+        asMatrix(x, X);
         asMatrix(d, D);
 
-        // forward ------------------------------------------
-        PVariable h3 = forward_one_step(model, x1, false);
+        PVariable h = forward_one_step(model, x, false);
 
-        accurecy += getAccurecy(model.G("g_softmax"), h3, d, batchSize);
+
+        PVariable loss = model.G("g_softmax_cross_entoropy")->forward(h, d);
+        float l = loss->val();
+        *sum_loss += l;
+
+        accurecy += getAccurecy(model.G("g_softmax"), h, d, batchSize);
 
         model.zero_grads();
         model.unchain();
-
     }
 
-    return accurecy/((float)predict_epoch);
+    *sum_loss /= ((float)predict_epoch);
+    return accurecy / ((float)predict_epoch);
 }
 
 
 int main(){
 
-    int epochNums = 100;
+    Model model;
+
+    int epochNums = 40;
+    int totalSampleSize = 50000;
+    int totalTestSize = 10000;
 
     int batchSize = 100;
-    int i_size = 784;
-    //int n_size = 1024;
-    int n_size = 100;
+    int i_size = 1024*3;
+    int n_size = 512;
+    int n_size2 = 512;
     int o_size = 10;
     float learning_rate = 0.001;
-    float dropout_p = 0.5;
+
+    int disp_num = 10;
+
 
     cout << "init dataset..." << endl;
     vector<vector<float>> train_data, test_data;
     vector<float> label_data, label_test_data;
 
 
-    Mnist mnist, mnist_test;
-    train_data = mnist.readTrainingFile("train-images-idx3-ubyte");
-    label_data = mnist.readLabelFile("train-labels-idx1-ubyte");
-    test_data = mnist_test.readTrainingFile("t10k-images-idx3-ubyte");
-    label_test_data = mnist_test.readLabelFile("t10k-labels-idx1-ubyte");
+    CIFAR10 cifar10, cifar10_test;
+    cifar10.readFile("./cifar-10-batches-bin/data_batch_1.bin");
+    cifar10.readFile("./cifar-10-batches-bin/data_batch_2.bin");
+    cifar10.readFile("./cifar-10-batches-bin/data_batch_3.bin");
+    cifar10.readFile("./cifar-10-batches-bin/data_batch_4.bin");
+    cifar10.readFile("./cifar-10-batches-bin/data_batch_5.bin");
+    train_data = cifar10.getDatas();
+    label_data = cifar10.getLabels();
+    totalSampleSize = train_data.size();
 
-    int totalSampleSize = train_data.size();
-    int totalTestSize = test_data.size();
+    cifar10_test.readFile("./cifar-10-batches-bin/test_batch.bin");
+    test_data = cifar10_test.getDatas();
+    label_test_data = cifar10_test.getLabels();
+    totalTestSize = test_data.size();
+    cout << "totalSampleSize:" << totalSampleSize << " totalTestSize:" << totalTestSize << endl;
 
     Dataset *dataset = new Dataset();
-    dataset->normalize(&train_data, 255);
-    //dataset->standrize(&train_data);
+
+    cout << "create BatchData for training" << endl;
+    dataset->normalize(&train_data, 255.0);
     vector<BatchData *> bds;
     for(int i=0; i<totalSampleSize/batchSize; i++){
         BatchData *bdata = new BatchData(i_size, o_size, batchSize);
         dataset->createMiniBatch(train_data, label_data, bdata->getX(), bdata->getD(), batchSize, o_size, i);
         bds.push_back(bdata);
     }
-    //dataset->standrize(&test_data);
-    dataset->normalize(&test_data, 255);
+    cout << "create BatchData for test" << endl;
+    dataset->normalize(&test_data, 255.0);
     vector<BatchData *> bds_test;
     for(int i=0; i<totalTestSize/batchSize; i++){
         BatchData *bdata = new BatchData(i_size, o_size, batchSize);
@@ -195,124 +211,129 @@ int main(){
         bds_test.push_back(bdata);
     }
 
+
+
+
     std::chrono::system_clock::time_point  start, end;
 
+    //Prepare MODEL
     cout << "create model..." << endl;
-    Model model;
+    model.putG("g1", new Linear(n_size, 4 * 4 * 32));
+
+    model.putG("g3", new Linear(o_size, n_size2));
+
+    model.putG("dropout4", new Dropout(0.5));
+
+    model.putG("g_relu1", new ReLU());
+    model.putG("g_relu2", new ReLU());
+    model.putG("g_relu3", new ReLU());
+    model.putG("g_relu4", new ReLU());
+    model.putG("g_relu5", new ReLU());
+    model.putG("g_relu6", new ReLU());
+    model.putG("g_relu7", new ReLU());
 
 
-    SparseLinear *ln = new SparseLinear(n_size, i_size, false, 0.9, 0.1, 0.05);
-    //Linear *ln = new Linear(n_size, i_size);
-    model.putG("slinear", ln);
-    model.putG("linear", new Linear(ln->w, true));
+    model.putG("g_softmax_cross_entoropy", new SoftmaxCrossEntropy());
+    model.putG("g_softmax", new Softmax());
 
 
-    /*
-    //model.putG("slinear", new SparseLinear(n_size, i_size, false, 0.9, 3.0, 0.05));
-    model.putG("slinear", new Linear(n_size, i_size));
-    model.putG("linear", new Linear(i_size, n_size));
-    */
-    //model.putG("sig", new Sigmoid());
-    model.putG("sig", new ReLU());
-    model.putG("mse", new MeanSquaredError());
+    // outputDim = 1 + (inputDim + 2*pad - filterDim)/convolutionStride
+    model.putG("g_conv2d1", new Conv2D(batchSize, 3, 32, 32, 3, 32, 1, 1));
+    model.putG("g_conv2d2", new Conv2D(batchSize, 32, 32, 32, 3, 32, 1, 1));
+    model.putG("g_conv2d3", new Conv2D(batchSize, 32, 16, 16, 3, 32, 1, 1));
+    model.putG("g_conv2d4", new Conv2D(batchSize, 32, 16, 16, 3, 32, 1, 1));
+    model.putG("g_conv2d5", new Conv2D(batchSize, 32, 8, 8, 3, 32, 1, 1));
+    model.putG("g_conv2d6", new Conv2D(batchSize, 32, 8, 8, 3, 32, 1, 1));
 
+    // Pooling(int width, int height, int depth, int windowWidth, int windowHeight)
+    model.putG("g_pooling1", new Pooling(32, 32, 32, 2, 2, 2, 0));
+    model.putG("g_pooling2", new Pooling(16, 16, 32, 2, 2, 2, 0));
+    model.putG("g_pooling3", new Pooling(8, 8, 32, 2, 2, 2, 0));
+
+
+    // Prepare optimizer
     OptimizerAdam optimizer(&model, learning_rate);
     optimizer.init();
 
-    float loss_mean = 0.0;
-    float accurecy_mean = 0.0;
-    float test_acc = 0.0;
 
     cout << "start training ..." << endl;
     for(int k=0; k<epochNums; k++){
 
+        start = std::chrono::system_clock::now();
+
         std::random_shuffle(bds.begin(), bds.end());
 
         float sum_loss = 0.0;
+        float sum_loss_tmp = 0.0;
         float accurecy = 0.0;
+        float accurecy_tmp = 0.0;
 
-        PVariable loss_graph(new Variable(1, 1));
 
         for(int i=0; i<totalSampleSize/batchSize; i++){
 
-            PVariable x1(new Variable(i_size, batchSize));
-            PVariable d(new Variable(o_size, batchSize));
+            PVariable x(new Variable(i_size, batchSize, false));
+            PVariable d(new Variable(o_size, batchSize, false));
 
             // create mini-batch =========================
             float *X = bds.at(i)->getX();
             float *D = bds.at(i)->getD();
-            asMatrix(x1, X);
+            asMatrix(x, X);
             asMatrix(d, D);
 
-            // forward ------------------------------------------
-            PVariable h3 = forward_one_step(model, x1, true);
+            PVariable h = forward_one_step(model, x, true);
 
-            PVariable loss = model.G("mse")->forward(h3, x1);
+            PVariable loss = model.G("g_softmax_cross_entoropy")->forward(h, d);
 
-            // loss ---------------------------------------------
-            sum_loss += loss->val();
+            float l = loss->val();
+            sum_loss += l;
+            sum_loss_tmp += l;
 
-            // backward -----------------------------------------
             loss->backward();
 
-            // update -------------------------------------------
             optimizer.update();
 
+            float ac = getAccurecy(model.G("g_softmax"), h, d, batchSize);
+            accurecy += ac;
+            accurecy_tmp += ac;
 
-            //accurecy += getAccurecy(model.G("g_softmax"), h3, d, batchSize);
+
+            if ((i+1) % disp_num == 0){
+                cout << (i+1) << " loss:" << sum_loss_tmp/((float)disp_num) << " accurecy:" << accurecy_tmp/((float)disp_num)*100 << "%" << endl;
+                accurecy_tmp = 0.0;
+                sum_loss_tmp = 0.0;
+            }
 
             model.unchain();
-
-            if (i<10) {
-                stringstream png_name, png_name_org;
-                png_name_org << "./images/mnist_org" << i << ".png";
-                png_name << "./images/mnist_" << i << ".png";
-                h3->data.toHostArray();
-                col2png(png_name_org.str(), X + 28 * 28, 28, 28, 255);
-                col2png(png_name.str(), h3->data.mHost + 28 * 28, 28, 28, 255);
-            }
-        }
-
-        cuMat tmp_image = ((Linear *)model.G("slinear"))->w->data.transpose();
-        tmp_image.toHostArray();
-        //cout << tmp_image.rows << ", " << tmp_image.cols << endl;
-        for(int i=0; i<100; i++) {
-            stringstream png_name;
-            png_name << "./images/hoge_" << i << ".png";
-            col2png(png_name.str(), tmp_image.mHost + i*28*28, 28, 28, 255);
+            model.zero_grads();
         }
 
 
+        end = std::chrono::system_clock::now();
+        int elapsed = std::chrono::duration_cast<std::chrono::seconds>(end-start).count();
+        float loss_mean = sum_loss/((float)totalSampleSize/batchSize);
+        float accurecy_mean = accurecy/((float)totalSampleSize/batchSize);
+        cout << "epoch:" << k+1 << " loss:" << loss_mean << " accurecy:"  << accurecy_mean*100 << "% time:" << elapsed << "s" << endl;
 
-        loss_mean += sum_loss/((float)totalSampleSize/batchSize);
-        //accurecy_mean += accurecy/((float)totalSampleSize/batchSize);
-        //test_acc += test_accurecy(model, bds_test, i_size, o_size, totalTestSize, batchSize);
-        cout << k << "," << loss_mean << endl;
-        //cout << loss_mean << "," << accurecy_mean << "," << test_acc << endl;
+        float test_loss = 0.0;
+        float test_acc = test_accurecy(model, bds_test, i_size, o_size, totalTestSize, batchSize, &test_loss);
+        cout << "test loss:" << test_loss << " accurecy:" << test_acc*100 << "%" << endl;
+        start = std::chrono::system_clock::now();
 
-        loss_mean = 0.0;
-        accurecy_mean = 0.0;
-        test_acc = 0.0;
-
-        /*
-        if (k!=0 && k % 50 == 0) {
-            cout << accurecy_mean/50.0 << "," << test_acc/50.0 << endl;
-            loss_mean = 0.0;
-            accurecy_mean = 0.0;
-            test_acc = 0.0;
-        }*/
     }
 
-
-    //cout << "saving model..." << endl;
-    //model.save("mlp_test.model");
-
+    cout << "saving model..." << endl;
+    model.save("cnn_test.model");
 
 
-    //cout << "loading model..." << endl;
-    //Model model_train;
-    //model_train.load("mlp_test.model");
-    //cout << "loaded" << endl;
+/*
+    cout << "loading model..." << endl;
+    Model model_train;
+    model_train.load("cnn_test.model");
+    cout << "loaded" << endl;
 
+    float test_loss = 0.0;
+    float test_acc = test_accurecy(model_train, bds_test, i_size, o_size, totalTestSize, batchSize, &test_loss);
+    cout << "test loss:" << test_loss << " accurecy:" << test_acc*100 << "%" << endl;
+*/
 }
 

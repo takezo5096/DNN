@@ -1,8 +1,6 @@
 /*
  * tokenizer.h
  *
- *  Created on: 2016/02/05
- *      Author: takeshi.fujita
  */
 
 #ifndef TOKENIZER_H_
@@ -60,14 +58,6 @@ public:
             }
         }
         return result;
-
-
-        /*
-        const char *result = tagger->parse(input.c_str());
-        std::string s(result);
-        s.replace(s.size()-2, 2, ""); // remove last 2 code, because mecab return sting with return code at end
-        return split(s, ' ');
-        */
     }
 };
 

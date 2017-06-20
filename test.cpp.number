@@ -9,7 +9,6 @@
 #include <sstream>
 #include <random>
 
-//#include "function.h"
 #include "graph.h"
 #include "variable.h"
 #include "model.h"
@@ -101,7 +100,6 @@ int main(){
     int h_size = 4;
     int epoch = 100000;
     float learning_rate = 0.001;
-    //float learning_rate = 0.01;
     float clip_grad_threshold = 0;
     int display_size = 100;
 
@@ -128,8 +126,6 @@ int main(){
     }
     cout << endl;
 
-    //model.putG("lstm", new FullLSTM(h_size, data_size+1));
-    //model.putG("lstm", new GRU(h_size, data_size+1));
     model.putG("lstm", new FullLSTM2(h_size, data_size+1));
     model.putG("tanh", new Tanh());
     model.putG("linear", new Linear(data_size+1, h_size));
@@ -138,8 +134,6 @@ int main(){
     model.putG("softmax", new Softmax());
 
     OptimizerAdam optimizer(&model, learning_rate, clip_grad_threshold);
-    //OptimizerSGDMoment optimizer(&model, learning_rate, 0.7);
-    //OptimizerAdagrad optimizer(&model, learning_rate, clip_grad_threshold);
     optimizer.init();
 
     vector<float> loss_values;
@@ -184,15 +178,6 @@ int main(){
             float loss_avg = loss_vals / data_size / display_size;
             cout << "epoch:" << i << " loss:" <<  loss_avg << endl;
 
-            /*
-            if (check_updated_values(loss_values, loss_avg, optimizer.lr)){
-                optimizer.lr /= 10;
-                cout << "---------------------- change learning rate:" << optimizer.lr << endl;
-            }
-            */
-
-
-
             model.unchain();
 
             model.G("lstm")->reset_state();
@@ -207,8 +192,6 @@ int main(){
 
                 wd.toOneHot(data_size+1, data_x, maxIdx_z3[0], 0, false);
                 wd.toOneHot(data_size+1, data_t, train_data[which_data][j + 1], 0, false);
-
-                //cout << train_data[j + 1] << " ";
 
                 PVariable x(new Variable(data_size+1, 1, false));
                 PVariable t(new Variable(data_size+1, 1, false));

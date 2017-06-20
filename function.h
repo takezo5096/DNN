@@ -1,6 +1,5 @@
 #include <list>
 #include <random>
-//#include <stack>
 #include <vector>
 #include <map>
 
@@ -384,7 +383,6 @@ class FunctionBatchNorm: public Function {
 public:
     Variable *gamma, *beta;
 
-    //cuMat xhat, rmu, xmu, ivar, sqrtvar, var;
     vector<cuMat> xhat, rmu, xmu, ivar, sqrtvar, var;
 
     bool is_train = true;

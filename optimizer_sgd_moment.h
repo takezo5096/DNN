@@ -1,8 +1,6 @@
 /*
  * optimizer_adam.h
  *
- *  Created on: 2016/01/27
- *      Author: takeshi.fujita
  */
 
 #ifndef OPTIMIZER_SGD_MOMENT_H_
@@ -47,7 +45,6 @@ public:
 
 
     void update_param(Variable *w, OptimizerParams &opp) {
-        //w.grad.mul(1.0/batch_size, w.grad);
 
         //weight decay
         //w.data.plus_util(0.0001, 1.0, w.grad, w.grad);

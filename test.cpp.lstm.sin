@@ -4,7 +4,6 @@
 
 #include <sys/resource.h>
 
-//#include "function.h"
 #include "graph.h"
 #include "variable.h"
 #include "model.h"
@@ -49,10 +48,8 @@ void createSinData(float data[], int steps_per_cycle, int number_of_cycles){
     for (int j=0; j<number_of_cycles; j++){
         for (int i=0; i<steps_per_cycle; i++){
             float v = std::sin(i * 2 * std::atan(1) * 4 /  steps_per_cycle);
-            //cout << v << " ";
             data[steps_per_cycle * j + i] = v;
         }
-        //cout << endl;
     }
 }
 
@@ -102,7 +99,6 @@ void test(){
     target.memSetHost(11, 11, 12);
     target.memHostToDevice();
 
-    //cout << target;
 
     cuMat gi = target.sliceRows(0, 3);
     cuMat gf = target.sliceRows(3, 3);
@@ -131,8 +127,6 @@ void test(){
 
 int main(){
 
-    //test();
-
     int steps_per_cycle = 50;
     int number_of_cycles = 100;
 
@@ -144,8 +138,6 @@ int main(){
     int batch_size = 100;
     int bprop_len = 100;
     float learning_rate = 0.001; //Optimizer Adam
-    //float learning_rate = 0.0001; //Optimizer SGD
-    //float learning_rate = 0.01; //Optimizer Adagrad
     float sdg_momentum = 0.7;
 
     int i_size = 1;
@@ -160,8 +152,6 @@ int main(){
     cout << whole_len << " " << batch_size << " " << jump << endl;
 
     cout << "create model..." << endl;
-    //model.putG("g_lstm", new GRU(n_size, i_size));
-    //model.putG("g_lstm", new FullLSTM(n_size, i_size));
     model.putG("g_lstm", new FullLSTM2(n_size, i_size));
     model.putG("tanh", new Tanh());
     model.putG("w_hy", new Linear(o_size, n_size));
@@ -169,8 +159,6 @@ int main(){
     model.putG("g_loss_plus", new Plus());
 
     OptimizerAdam optimizer(&model, learning_rate);
-    //OptimizerSGDMoment optimizer(&model, learning_rate, sdg_momentum);
-    //OptimizerAdagrad optimizer(&model, learning_rate);
     optimizer.init();
 
     std::chrono::system_clock::time_point  start, end;
@@ -228,22 +216,12 @@ int main(){
                 << " iters/sec:" << ((float)1000)/((float)elapsed) << " timesec:" << elapsed << endl;
 
 
-            //if (cur_log_perp/1000 < 0.02) break;
-
             start = std::chrono::system_clock::now();
             cur_log_perp = 0;
         }
 
         if (i % jump == 0){
             epoch++;
-
-            /*
-            if (epoch == epoch_size/3){
-                optimizer.lr /= 10;
-                cout << "change learning rate:" << optimizer.lr << endl;
-            }*/
-
-
         }
 
 

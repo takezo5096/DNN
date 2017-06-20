@@ -1,8 +1,6 @@
 /*
  * word_embed.h
  *
- *  Created on: 2016/02/05
- *      Author: takeshi.fujita
  */
 
 #ifndef WORD_EMBED_H_
@@ -108,7 +106,6 @@ public:
 
         int cnt = 0;
         for(auto v : pairs){
-            //cout << v.first << " " << v.second << endl;
             string w = v.first;
             if (idmap.count(w) == 0){
                 int id = idmap.size();
@@ -139,7 +136,6 @@ public:
         if (addSOS) sentence = "<sos> " + sentence;
         if (addEOS) sentence += " <eos>";
 
-        //cout << sentence << endl;
         vector<string> words;
         if (tokenize) words = token.parse(sentence);
         else words = split(sentence, ' ');
@@ -171,13 +167,6 @@ public:
         for (int i=0; i<sequences_ids.size(); i++){
 
             this->padding(sequences_ids[i], max_size);
-
-            /*
-            for (int j=0; j<sequences_ids[i].size(); j++){
-                cout << sequences_ids[i][j] << " ";
-            }
-            cout << endl;
-             */
         }
     }
 

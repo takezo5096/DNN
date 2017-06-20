@@ -7,7 +7,6 @@
 
 
 
-//#include "function.h"
 #include "graph.h"
 #include "variable.h"
 #include "model.h"
@@ -15,7 +14,6 @@
 #include "batchdata.h"
 #include "iris.h"
 #include "mnist.h"
-//#include "autoencoder.h"
 #include "optimizer_adam.h"
 #include "optimizer_sgd_moment.h"
 #include "word_embed.h"
@@ -104,11 +102,8 @@ int main(){
     model.putG("g3", new Linear(o_size, n_size));
     model.putG("g_softmax_cross_entoropy", new SoftmaxCrossEntropy());
     model.putG("g_softmax", new Softmax());
-    //model.putG("g_batch_norm1", new BatchNorm(1.0f, 0.0f));
-    //model.putG("g_batch_norm2", new BatchNorm(1.0f, 0.0f));
 
     OptimizerAdam optimizer(&model, learning_rate);
-    //OptimizerSGDMoment optimizer(&model, learning_rate, 0.7);
     optimizer.init();
 
     cout << "start training ..." << endl;
@@ -135,12 +130,8 @@ int main(){
             asMatrix(d, D);
 
             // forward ------------------------------------------
-            //PVariable h1 = model.G("g_drop1")->forward(model.G("g_relu1")->forward(model.G("g1")->forward(x1)));
-            //PVariable h2 = model.G("g_drop2")->forward(model.G("g_relu2")->forward(model.G("g2")->forward(h1)));
             PVariable h1 = model.G("g_relu1")->forward(model.G("g1")->forward(x1));
             PVariable h2 = model.G("g_relu2")->forward(model.G("g2")->forward(h1));
-            //PVariable h1 = model.G("g_relu1")->forward(model.G("g_batch_norm1")->forward(model.G("g1")->forward(x1)));
-            //PVariable h2 = model.G("g_relu2")->forward(model.G("g_batch_norm2")->forward(model.G("g2")->forward(h1)));
 
             PVariable h3 = model.G("g3")->forward(h2);
             PVariable loss = model.G("g_softmax_cross_entoropy")->forward(h3, d);
@@ -169,8 +160,6 @@ int main(){
     //cout << "saving model..." << endl;
     //model.save("mlp_test.model");
 
-
-
     //cout << "loading model..." << endl;
     //Model model_train;
     //model_train.load("mlp_test.model");
@@ -193,8 +182,6 @@ int main(){
         asMatrix(d, D);
 
         // forward ------------------------------------------
-        //PVariable h1 = model.G("g_relu1")->forward(model.G("g_batch_norm1")->forward(model.G("g1")->forward(x1)));
-        //PVariable h2 = model.G("g_relu2")->forward(model.G("g_batch_norm2")->forward(model.G("g2")->forward(h1)));
         PVariable h1 = model.G("g_relu1")->forward(model.G("g1")->forward(x1));
         PVariable h2 = model.G("g_relu2")->forward(model.G("g2")->forward(h1));
 

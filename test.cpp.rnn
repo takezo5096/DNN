@@ -67,8 +67,6 @@ int main(){
     Function *w_xe = new FunctionLinear(n_size, i_size);
     Function *w_eh = new FunctionLinear(n_size, n_size);
     Function *f_tanh = new FunctionTanh();
-    //Function *f_tanh = new FunctionReLU();
-    //Function *f_drop = new FunctionDropout(dropout_p);
     Function *f_plus = new FunctionPlus();
     Function *w_hy = new FunctionLinear(o_size, n_size);
     Function *f_softmax_cross_entoropy = new FunctionSoftmaxCrossEntropy();
@@ -116,13 +114,6 @@ int main(){
 
 
             PVariable loss =  forward_one_step(x, d, s_h);
-            /*
-            PVariable w_p = model.f("f_plus")->forward(model.f("w_xe")->forward(x), model.f("w_eh")->forward(s_h));
-            s_h = model.f("f_tanh")->forward(w_p);
-            PVariable s_y = model.f("w_hy")->forward(s_h);
-            PVariable loss = model.f("f_softmax_cross_entoropy")->forward(s_y, d);
-            //cout << "loss:" << loss->val() << endl;
-            */
 
             cur_log_perp += loss->val();
             loss_sum = f_loss_plus->forward(loss_sum, loss);
@@ -130,7 +121,6 @@ int main(){
 
             if ((idx+1) % bprop_len == 0){
                 loss_sum->backward();
-                //cout << "loss_sum:" << loss_sum->val() << endl;
                 optimizer.update();
                 loss_sum->zero_grads();
                 loss_sum->unchain();

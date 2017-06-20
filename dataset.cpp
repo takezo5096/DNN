@@ -1,7 +1,6 @@
 #include <iostream>
 #include <stdio.h>
 #include <stdlib.h>
-//#include <math.h>
 #include <random>
 #include <algorithm>
 #include<thread>
@@ -61,7 +60,6 @@ void Dataset::shuffle(vector<vector<float> > *s) {
     }
 }
 
-//標準化
 void Dataset::standrize(vector<vector<float> > *s) {
 
     vector<float> mean;
@@ -93,31 +91,6 @@ void Dataset::normalize(vector<vector<float> > *s, float max){
     }
 }
 
-/*
- void Dataset::createMiniBatch(vector<vector<float> >s, vector<float>d,
- float *X, float *D, int batchSize, int d_size, int l){
-
- int M = s[0].size();
-
-
- int batchStartIdx = l*batchSize;
- int k=0;
- for (int i=batchStartIdx; i<batchStartIdx + batchSize; i++){
-
- for (int j = 0; j < M; j++) {
- X[IDX2F(k,j,batchSize)] = s[i][j];
- }
-
- for(int j=0; j<d_size; j++){
- if (d[i] == j) D[IDX2F(k,j,batchSize)] = 1;
- else D[IDX2F(k,j,batchSize)] = 0;
- }
-
- k++;
- }
-
- }
- */
 void Dataset::createMiniBatch(vector<vector<float> >&s, vector<float>&d,
         float *X, float *D, int batchSize, int d_size, int l) {
 

@@ -1,23 +1,6 @@
-//
-// Created by 藤田 毅 on 2016/10/17.
-//
-
-
-//
-// Created by 藤田 毅 on 2016/10/14.
-//
-
-
-
-
 #include "graph.h"
 
 using namespace std;
-
-
-//extern Variable *obj_construct(Function *f, int rows, int cols);
-//extern void obj_destroy(Variable *ptr);
-
 
 
 Graph::Graph(){
@@ -33,7 +16,6 @@ void Graph::init(){
 
 void Graph::remove_chain(){
 
-    //cout << "Graph::remove_chain()" << endl;
     funcs_chain.clear();
 }
 
@@ -44,11 +26,9 @@ vector<Variable *> Graph::getParams() {
 }
 
 PVariable Graph::forward(PVariable input) {
-    //cout << "Graph forward start" << endl;
 
 }
 PVariable Graph::forward(PVariable x, PVariable t) {
-    //cout << "Graph forward start" << endl;
 
 }
 
@@ -186,15 +166,6 @@ PVariable SparseLinear::forward(PVariable v){
     PFunction pf(f);
     funcs_chain.push_back(pf);
 
-    /*
-    Function *f_sig = new FunctionReLU();
-    PFunction p_f_sig(f_sig);
-    funcs_chain.push_back(p_f_sig);
-
-    PVariable r_tmp = pf->forward(v);
-
-    PVariable r = p_f_sig->forward(r_tmp);
-    */
     PVariable r = pf->forward(v);
 
     cuMat np = 1.0/v->data.rows * r->data.batch_sum().vec_to_mat(v->data.cols);
@@ -254,10 +225,6 @@ PReLU::PReLU(int rows, int cols) {
 
 }
 PVariable PReLU::forward(PVariable v){
-    //if (a == NULL){
-    //    a = new Variable(v->data.rows, v->data.cols);
-    //    a->data.fill(2.5);
-    //}
 
     Function *f = new FunctionPReLU(this->a);
     PFunction pf(f);
@@ -457,17 +424,14 @@ PVariable LSTM::forward(PVariable x) {
 
 
     if (c.get() == NULL || c->data.rows == 0 || c->data.cols != x->data.cols) {
-        //c = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
         c = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
     }
     if (c_next.get() == NULL || c_next->data.rows ==0 || c_next->data.cols != x->data.cols) {
-        //c_next = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
         c_next = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
 
     }
 
     if (h.get() == NULL || h->data.rows == 0 || h->data.cols != x->data.cols) {
-        //h = PVariable(obj_construct(NULL, output_size * 4, x->data.cols), obj_destroy);
         h = PVariable(variable_construct(output_size *4, x->data.cols), variable_destroy);
 
         h->opt = id;
@@ -636,53 +600,42 @@ PVariable FullLSTM::forward(PVariable x) {
 
 
     if (c.get() == NULL || c->data.rows == 0 || c->data.cols != x->data.cols) {
-        //c = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
         c = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
     }
     if (c_next.get() == NULL || c_next->data.rows ==0 || c_next->data.cols != x->data.cols) {
-        //c_next = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
         c_next = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
     }
 
     if (f.get() == NULL || f->data.rows == 0 || f->data.cols != x->data.cols) {
-        //f = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
         f = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
     }
     if (f_next.get() == NULL || f_next->data.rows ==0 || f_next->data.cols != x->data.cols) {
-        //f_next = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
         f_next = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
     }
 
     if (i.get() == NULL || i->data.rows == 0 || i->data.cols != x->data.cols) {
-        //i = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
         i = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
     }
     if (i_next.get() == NULL || i_next->data.rows ==0 || i_next->data.cols != x->data.cols) {
-        //i_next = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
         i_next = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
     }
 
     if (o.get() == NULL || o->data.rows == 0 || o->data.cols != x->data.cols) {
-        //o = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
         o = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
     }
     if (o_next.get() == NULL || o_next->data.rows ==0 || o_next->data.cols != x->data.cols) {
-        //o_next = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
         o_next = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
     }
 
     if (g.get() == NULL || g->data.rows == 0 || g->data.cols != x->data.cols) {
-        //g = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
         g = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
     }
     if (g_next.get() == NULL || g_next->data.rows ==0 || g_next->data.cols != x->data.cols) {
-        //g_next = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
         g_next = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
     }
 
 
     if (h.get() == NULL || h->data.rows == 0 || h->data.cols != x->data.cols) {
-        //h = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
         h = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
         h->opt = id;
 
@@ -691,7 +644,6 @@ PVariable FullLSTM::forward(PVariable x) {
         h->last_opt = &last_opt;
         h->is_last_backward = &is_last_backward;
         id++;
-
     }
 
     h = f_lstm->forward(x, h, c, c_next, f, f_next, i, i_next, o, o_next, g, g_next);
@@ -1090,13 +1042,11 @@ PVariable FullLSTM2::forward(PVariable x) {
 
 
     if (c.get() == NULL || c->data.rows == 0 || c->data.cols != x->data.cols) {
-        //c = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
         c = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
     }
 
 
     if (h.get() == NULL || h->data.rows == 0 || h->data.cols != x->data.cols) {
-        //h = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
         h = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
         h->opt = id;
 
@@ -1378,146 +1328,6 @@ void FullLSTM2::fromHostArray(){
 
 
 
-/*
-GRU::GRU() : Graph() {
-
-}
-GRU::GRU(int output_size, int input_size) {
-
-    this->output_size = output_size;
-    this->input_size = input_size;
-
-
-    w_r = new Variable(output_size, output_size);
-    u_r = new Variable(output_size, input_size);
-    b_r = new Variable(output_size, 1);
-
-    w_z = new Variable(output_size, output_size);
-    u_z = new Variable(output_size, input_size);
-    b_z = new Variable(output_size, 1);
-
-    w_g = new Variable(output_size, output_size);
-    u_g = new Variable(output_size, input_size);
-    b_g = new Variable(output_size, 1);
-
-    w_r->randoms(0., sqrt((1./(float)output_size)));
-    u_r->randoms(0., sqrt((1./(float)input_size)));
-    w_z->randoms(0., sqrt((1./(float)output_size)));
-    u_z->randoms(0., sqrt((1./(float)input_size)));
-    w_g->randoms(0., sqrt((1./(float)output_size)));
-    u_g->randoms(0., sqrt((1./(float)input_size)));
-
-}
-GRU::~GRU() {
-    delete w_r; delete u_r, delete b_r;
-    delete w_z; delete u_z, delete b_z;
-    delete w_g; delete u_g, delete b_g;
-}
-
-PVariable GRU::forward(PVariable x) {
-    // prepare function
-    Function *f_gru = new FunctionGRU(w_r, u_r, b_r, w_z, u_z, b_z, w_g, u_g, b_g);
-    PFunction p_f_gru(f_gru);
-    funcs_chain.push_back(p_f_gru);
-    //--------------------------------------------
-
-
-    if (h.get() == NULL || h->data.rows == 0 || h->data.cols != x->data.cols) {
-        h = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
-        h->opt = id;
-
-        last_opt = id;
-
-        h->last_opt = &last_opt;
-        h->is_last_backward = &is_last_backward;
-        id++;
-
-    }
-
-    h = f_gru->forward(x, h);
-
-
-    h->opt = id;
-
-    last_opt = id;
-
-    h->last_opt = &last_opt;
-    h->is_last_backward = &is_last_backward;
-    id++;
-    return h;
-}
-
-
-void GRU::reset_state(){
-
-    w_r->zero_grad();
-    u_r->zero_grad();
-    b_r->zero_grad();
-    w_z->zero_grad();
-    u_z->zero_grad();
-    b_z->zero_grad();
-    w_g->zero_grad();
-    u_g->zero_grad();
-    b_g->zero_grad();
-
-    h->zeros();
-    h->unchain();
-
-    last_opt = 0;
-    is_last_backward = false;
-
-    id = 0;
-
-    h->opt = id;
-
-    last_opt = id;
-
-    h->last_opt = &last_opt;
-    h->is_last_backward = &is_last_backward;
-
-    id++;
-
-}
-
-void GRU::zero_grads() {
-    w_r->zero_grad();
-    u_r->zero_grad();
-    b_r->zero_grad();
-    w_z->zero_grad();
-    u_z->zero_grad();
-    b_z->zero_grad();
-    w_g->zero_grad();
-    u_g->zero_grad();
-    b_g->zero_grad();
-
-    h->zero_grad();
-}
-
-void GRU::toHostArray(){
-    w_r->data.toHostArray();
-    u_r->data.toHostArray();
-    b_r->data.toHostArray();
-    w_z->data.toHostArray();
-    u_z->data.toHostArray();
-    b_z->data.toHostArray();
-    w_g->data.toHostArray();
-    u_g->data.toHostArray();
-    b_g->data.toHostArray();
-
-}
-void GRU::fromHostArray(){
-
-    w_r->data.fromHostArray();
-    u_r->data.fromHostArray();
-    b_r->data.fromHostArray();
-    w_z->data.fromHostArray();
-    u_z->data.fromHostArray();
-    b_z->data.fromHostArray();
-    w_g->data.fromHostArray();
-    u_g->data.fromHostArray();
-    b_g->data.fromHostArray();
-}
-*/
 
 GRU::GRU() : Graph() {
 
@@ -1615,7 +1425,6 @@ PVariable GRU::forward(PVariable x) {
 
 
     if (h.get() == NULL || h->data.rows == 0 || h->data.cols != x->data.cols) {
-        //h = PVariable(obj_construct(NULL, output_size, x->data.cols), obj_destroy);
         h = PVariable(variable_construct(output_size, x->data.cols), variable_destroy);
 
         h->opt = id;
@@ -1752,7 +1561,6 @@ BatchNorm::BatchNorm(int element_size, int channel_num, float decay) {
     gamma = new Variable(element_size, channel_num);
     beta = new Variable(element_size, channel_num);
 
-    //gamma->randoms(0., sqrt((1./(float)element_size)));
     gamma->ones();
 
     lambda = decay;
@@ -1770,8 +1578,6 @@ BatchNorm::~BatchNorm() {
 
 vector<Variable *> BatchNorm::getParams(){
     vector<Variable *> params;
-    //params.push_back(x_mean);
-    //params.push_back(x_var);
     params.push_back(gamma);
     params.push_back(beta);
 
@@ -1779,13 +1585,6 @@ vector<Variable *> BatchNorm::getParams(){
 }
 
 PVariable BatchNorm::forward(PVariable x) {
-
-    /*
-    if (x_mean == NULL) x_mean = new Variable(x->data.rows, 1);
-    if (x_var == NULL) x_var = new Variable(x->data.rows, 1);
-    if (gamma == NULL) gamma = new Variable(x->data.rows, 1);
-    if (beta == NULL) beta = new Variable(x->data.rows, 1);
-    */
 
     // prepare function
     FunctionBatchNorm *f = new FunctionBatchNorm(element_size, channel_num, gamma, beta, x_mean, x_var);
@@ -1805,7 +1604,6 @@ PVariable BatchNorm::forward(PVariable x) {
             lam = 0.0;
             is_first = false;
         }
-        //exit(1);
 
         cuMat current_mean(element_size, channel_num);
         cuMat current_var(element_size, channel_num);
@@ -1815,8 +1613,6 @@ PVariable BatchNorm::forward(PVariable x) {
             current_var.memSetDeviceCol(f->var[i].mDevice, i);
         }
 
-        //x_mean->data = lam * x_mean->data + (1.0-lam) * f->rmu;
-        //x_var->data = lam * x_var->data  + (1.0-lam) * f->var;
         x_mean->data = lam * x_mean->data + (1.0-lam) * current_mean;
         x_var->data = lam * x_var->data  + (1.0-lam) * current_var;
     }
@@ -1863,7 +1659,6 @@ Conv2D::Conv2D(int batch_num, int channel_num, int w_size, int h_size, int filte
 
 
     w = new Variable(filter_num, filter_size * filter_size * channel_num);
-    //w = new Variable(filter_size * filter_size * channel_num, filter_num);
     //He-Normal
     //https://arxiv.org/pdf/1502.01852.pdf
     w->randoms(0., sqrt(2.0/((float)filter_size*filter_size * channel_num)));

@@ -8,7 +8,6 @@
 #include "png.h"
 
 
-//#include "function.h"
 #include "graph.h"
 #include "variable.h"
 #include "model.h"
@@ -16,7 +15,6 @@
 #include "batchdata.h"
 #include "iris.h"
 #include "mnist.h"
-//#include "autoencoder.h"
 #include "optimizer_adam.h"
 #include "optimizer_sgd_moment.h"
 #include "word_embed.h"
@@ -89,7 +87,6 @@ float getAccurecy(Graph *g_softmax, PVariable h, PVariable d, int batchSize){
     PVariable y = ((Softmax *)g_softmax)->forward(h);
 
     int maxIdx[batchSize];
-    //y->data.maxRowIndex(maxIdx);
     h->data.maxRowIndex(maxIdx);
 
     int maxIdx_d[batchSize];
@@ -109,14 +106,9 @@ PVariable forward_one_step(Model &model, PVariable x1, bool is_train) {
     //de-noising
     PVariable v = x1;
     PVariable rand = PVariable(new Variable(v->data.rows, v->data.cols));
-    //rand->randoms(0., sqrt((0.5/(float)v->data.rows)));
-    //v->data += rand->data;
 
-    //rand->binominal_randoms(0.5);
-    //v->data *= rand->data;
 
     PVariable h1 = model.G("slinear")->forward(v);
-    //PVariable h1 = model.G("sig")->forward(model.G("slinear")->forward(v));
     PVariable h2 = model.G("linear")->forward(h1);
 
     return h2;
@@ -158,7 +150,6 @@ int main(){
 
     int batchSize = 100;
     int i_size = 784;
-    //int n_size = 1024;
     int n_size = 100;
     int o_size = 10;
     float learning_rate = 0.001;
@@ -203,17 +194,10 @@ int main(){
 
 
     SparseLinear *ln = new SparseLinear(n_size, i_size, false, 0.9, 0.1, 0.05);
-    //Linear *ln = new Linear(n_size, i_size);
     model.putG("slinear", ln);
     model.putG("linear", new Linear(ln->w, true));
 
 
-    /*
-    //model.putG("slinear", new SparseLinear(n_size, i_size, false, 0.9, 3.0, 0.05));
-    model.putG("slinear", new Linear(n_size, i_size));
-    model.putG("linear", new Linear(i_size, n_size));
-    */
-    //model.putG("sig", new Sigmoid());
     model.putG("sig", new ReLU());
     model.putG("mse", new MeanSquaredError());
 
@@ -259,51 +243,15 @@ int main(){
             // update -------------------------------------------
             optimizer.update();
 
-
-            //accurecy += getAccurecy(model.G("g_softmax"), h3, d, batchSize);
-
             model.unchain();
-
-            /*
-            if (i<10) {
-                stringstream png_name, png_name_org;
-                png_name_org << "./images/mnist_org" << i << ".png";
-                png_name << "./images/mnist_" << i << ".png";
-                h3->data.toHostArray();
-                col2png(png_name_org.str(), X + 28 * 28, 28, 28, 255);
-                col2png(png_name.str(), h3->data.mHost + 28 * 28, 28, 28, 255);
-            }*/
         }
 
-        /*
-        cuMat tmp_image = ((Linear *)model.G("slinear"))->w->data.transpose();
-        tmp_image.toHostArray();
-        //cout << tmp_image.rows << ", " << tmp_image.cols << endl;
-        for(int i=0; i<100; i++) {
-            stringstream png_name;
-            png_name << "./images/hoge_" << i << ".png";
-            col2png(png_name.str(), tmp_image.mHost + i*28*28, 28, 28, 255);
-        }*/
-
-
-
         loss_mean += sum_loss/((float)totalSampleSize/batchSize);
-        //accurecy_mean += accurecy/((float)totalSampleSize/batchSize);
-        //test_acc += test_accurecy(model, bds_test, i_size, o_size, totalTestSize, batchSize);
         cout << k << "," << loss_mean << endl;
-        //cout << loss_mean << "," << accurecy_mean << "," << test_acc << endl;
 
         loss_mean = 0.0;
         accurecy_mean = 0.0;
         test_acc = 0.0;
-
-        /*
-        if (k!=0 && k % 50 == 0) {
-            cout << accurecy_mean/50.0 << "," << test_acc/50.0 << endl;
-            loss_mean = 0.0;
-            accurecy_mean = 0.0;
-            test_acc = 0.0;
-        }*/
     }
 
 

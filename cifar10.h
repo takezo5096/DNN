@@ -30,12 +30,9 @@ public:
             ifs.read((char *) &label_num, sizeof(unsigned char));
             labels.push_back((float) label_num);
 
-            //cout << +label_num << endl;
-
             //read data
             for (int k = 0; k < rgb_data_size; k++) {
                 ifs.read((char *)&imgc, sizeof(unsigned char));
-                //cout << +imgc << " ";
                 img_f.push_back((float) imgc);
             }
             images.push_back(img_f);

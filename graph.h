@@ -1,7 +1,3 @@
-//
-// Created by 藤田 毅 on 2016/10/14.
-//
-
 #ifndef GRAPH_H
 #define GRAPH_H
 
@@ -12,7 +8,6 @@
 #include <boost/serialization/serialization.hpp>
 
 #include "function.h"
-//#include "variable.h"
 
 
 using namespace std;

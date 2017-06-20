@@ -1,8 +1,6 @@
 /*
  * optimizer_adagrad.h
  *
- *  Created on: 2016/01/27
- *      Author: takeshi.fujita
  */
 
 #ifndef OPTIMIZER_ADAGRAD_H_

@@ -5,7 +5,6 @@
 #include <random>
 #include <memory>
 #include <boost/intrusive_ptr.hpp>
-//#include <boost/pool/object_pool.hpp>
 
 #include "cuMat.h"
 #include "cuMatSparse.h"
@@ -14,11 +13,8 @@ using namespace std;
 
 
 
-//#include "function.h"
 class Function;
 
-//class Variable;
-//extern boost::object_pool<Variable> obj_pool;
 
 class Variable {
 
@@ -103,30 +99,10 @@ public:
     void binominal_randoms(float ratio);
 
     float val();
-
-
-/*
-    friend void
-    intrusive_ptr_add_ref(Variable *p_obj)
-    {
-            p_obj->refc++;
-    }
-
-    friend void
-    intrusive_ptr_release(Variable *p_obj)
-    {
-            p_obj->refc--;
-            if (p_obj->refc <= 0) {
-                //delete p_obj;
-                obj_pool.destroy(p_obj);
-            }
-    }
-*/
 };
 
 
 using PVariable = shared_ptr<Variable>;
-//using PVariable = boost::intrusive_ptr<Variable>;
 
 
 Variable *variable_construct(int rows, int cols);

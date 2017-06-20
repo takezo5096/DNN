@@ -1,8 +1,6 @@
 /*
  * Optimizer.h
  *
- *  Created on: 2016/01/25
- *      Author: takeshi.fujita
  */
 
 #ifndef OPTIMIZER_H_
@@ -18,10 +16,8 @@
 class OptimizerParams {
 public:
 
-    //bool no_params = false;
     OptimizerParams(){}
 
-    //virtual void init(int row, int cols){cout << "init" <<endl;}
 };
 
 class Optimizer {

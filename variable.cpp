@@ -1,8 +1,6 @@
 /*
  * variable.cpp
  *
- *  Created on: 2015/12/25
- *      Author: takeshi.fujita
  */
 
 #include <list>
@@ -162,7 +160,6 @@ Variable::Variable(vector<float> &ids, int nums){
     gVariableId++;
 
     data_sparse = cuMatSparse(ids, nums);
-    //cuMat tmp = data_sparse.toDense();
     grad = cuMat(data_sparse.rows, data_sparse.cols);
 
     seed = cuMat(grad.rows, grad.cols);
@@ -177,7 +174,6 @@ Variable::Variable(vector<float> &ids, int nums){
 
 
 Variable::~Variable() {
-    //cout << "Variable::~Variable()" << endl;
 }
 
 
@@ -189,7 +185,6 @@ Variable &Variable::operator=(const Variable &a) {
 
     data = a.data;
     grad = a.grad;
-    //data_sparse = a.data_sparse;
 
     seed = a.seed;
 
@@ -222,35 +217,23 @@ void Variable::backward(Variable *v) {
 
     if (v->creator != NULL) {
 
-        //cout << "backward name1:" << v->creator->name << " v->forward_count:" << v->forward_count << endl;
-
-
         if (v->last_opt != NULL && v->opt == *v->last_opt){
             *v->is_last_backward = true;
-            //cout << "is backwoard v->opt:" << v->opt << " v->creator->name:" << v->creator->name << endl;
         }
 
         if (v->forward_count >0) v->forward_count--;
 
-        //cout << "backward name2:" << v->creator->name << endl;
-
         if (v->is_last_backward != NULL && *v->is_last_backward == false) return;
-        //cout << "backward name3:" << v->creator->name << " v->forward_count:" << v->forward_count <<  endl;
 
         if (v->forward_count != 0) return;
 
-        //cout << "backward name4:" << v->creator->name << endl;
-
         v->creator->backward(v->grad);
-
-        //cout << "backward name5:" << v->creator->name << endl;
 
         for (int i = 0; i< v->creator->inputs.size(); i++) {
 
             PVariable nv = v->creator->inputs[i];
 
             if (nv->isGetGrad) {
-                //cout << nv.get()->creator->name << endl;
                 this->backward(nv.get());
             }
         }
@@ -309,10 +292,7 @@ void Variable::zero_grad(){
 void Variable::randoms(float m, float a) {
     random_device rd;
     mt19937 mt(rd());
-    //uniform_real_distribution<float> initd1(-a, a);
     normal_distribution<float> initd1(m, a);
-    //gamma_distribution<float> initd1(a, 1.0);
-
 
     for (int i = 0; i < data.rows; i++) {
         for (int j = 0; j < data.cols; j++) {

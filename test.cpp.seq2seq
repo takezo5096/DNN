@@ -43,8 +43,6 @@ WordEmbed *load_data(string filename, int vocab_size, bool addEOS, bool addSOS){
         // read by line
         std::getline(reading_file, reading_line_buffer);
 
-        //std::cout << reading_line_buffer << std::endl;
-
         sequences.push_back(reading_line_buffer);
     }
 
@@ -91,7 +89,6 @@ void sortSeqs(vector<vector<int>> &seqs_ids_ja, vector<vector<int>> &seqs_ids_en
     seqs_ids_en.clear();
 
     for (auto a : en_seq_size){
-        //cout << a.first << " " << a.second << endl;
         int id = a.second;
 
         seqs_ids_ja.push_back(tmp_ja[id]);
@@ -187,7 +184,6 @@ vector<PVariable> encoder(vector<vector<int>> &seqs_ids_ja, WordEmbed *wd_ja, in
         PVariable embed = model.G("embed_ja")->forward(x);
         PVariable tanh_ja = model.G("tanh_ja")->forward(embed);
         PVariable h = model.G("lstm_ja")->forward(tanh_ja);
-        //PVariable h = model.G("tanh_ja2")->forward(tmp);
 
         src_hidden_states.push_back(h);
     }
@@ -233,7 +229,6 @@ vector<int> predict(vector<vector<int>> &seqs_ids_ja, vector<vector<int>> &seqs_
         PVariable embed_en = model.G("embed_en")->forward(t);
         PVariable tanh_en = model.G("tanh_en")->forward(embed_en);
         PVariable state_en = model.G("lstm_en")->forward(tanh_en);
-        //PVariable state_en = model.G("tanh_en2")->forward(state_en_tmp);
 
         // attention //////////
         PVariable a = cal_attention_vector(state_en, src_hidden_states);
@@ -260,18 +255,6 @@ vector<int> predict(vector<vector<int>> &seqs_ids_ja, vector<vector<int>> &seqs_
         PVariable t2(new Variable(vocab_size, batch_size, false));
         toPVariable(t2, data_en);
 
-
-        /*
-        //input feeding //////////
-        // http://www.aclweb.org/anthology/D15-1166
-        PVariable t3(new Variable(vocab_size, batch_size, false));
-        t3->data = t2->data;
-        PVariable in2(new Variable(vocab_size, batch_size, false));
-        in2->data = in->data;
-        PVariable t4 = model.G("input_feeding_plus")->forward(model.G("input_feeding_linear")->forward(in2), t3);
-         t = t4;
-        //////////////////////////
-        */
         t = t2;
 
     }
@@ -307,7 +290,6 @@ PVariable forward_one_step(vector<vector<int>> &seqs_ids_ja, vector<vector<int>>
         PVariable embed_en = model.G("embed_en")->forward(t);
         PVariable tanh_en = model.G("tanh_en")->forward(embed_en);
         PVariable state_en = model.G("lstm_en")->forward(tanh_en);
-        //PVariable state_en = model.G("tanh_en2")->forward(state_en_tmp);
 
         // attention //////////
         PVariable a = cal_attention_vector(state_en, src_hidden_states);
@@ -339,19 +321,6 @@ PVariable forward_one_step(vector<vector<int>> &seqs_ids_ja, vector<vector<int>>
 
         loss_sum = model.G("plus_en")->forward(loss_sum, loss);
 
-
-
-        /*
-        //input feeding //////
-        // http://www.aclweb.org/anthology/D15-1166
-        PVariable t3(new Variable(vocab_size, batch_size, false));
-        t3->data = t2->data;
-        PVariable in2(new Variable(vocab_size, batch_size, false));
-        in2->data = in->data;
-        PVariable t4 = model.G("input_feeding_plus")->forward(model.G("input_feeding_linear")->forward(in2), t3);
-         t = t4;
-        //////////////////////
-        */
         t = t2;
     }
 
@@ -365,11 +334,6 @@ int main(){
 
     int batch_size = 64;
 
-    /*
-     int vocab_size = 1000;
-    int embed_size = 200;
-    int h_size = 400;
-    */
     int vocab_size = 10000;
     int embed_size = 200;
     int h_size = 400;
@@ -377,17 +341,10 @@ int main(){
 
     float clip_grad_threshold = 0;
     float learning_rate = 0.001; //ADAM
-    //float learning_rate = 0.0001; //SDG
-    //float learning_rate = 0.01; //ADAGRAD
 
-    //int epoch = 300;
     int epoch = 100;
 
 
-    //WordEmbed *wd_ja = load_data("train10000.ja", vocab_size, false, false);
-    //WordEmbed *wd_en = load_data("train10000.en", vocab_size, true, false);
-    //WordEmbed *wd_ja = load_data("wikipedia_kyoto_ROD.ja", vocab_size, false, false);
-    //WordEmbed *wd_en = load_data("wikipedia_kyoto_ROD.en", vocab_size, true, false);
     WordEmbed *wd_ja = load_data("tanaka_corpus_j_10000.txt", vocab_size, false, false);
     WordEmbed *wd_en = load_data("tanaka_corpus_e_10000.txt", vocab_size, true, false);
 
@@ -435,15 +392,11 @@ int main(){
 
 
     OptimizerAdam optimizer(&model, learning_rate, clip_grad_threshold);
-    //OptimizerSGDMoment optimizer(&model, learning_rate, 0.7);
-    //OptimizerAdagrad optimizer(&model, learning_rate, clip_grad_threshold);
     optimizer.init();
 
 
     int step = seqs_ids_ja.size() / batch_size;
     cout << "seqs_ids_ja.size():" << seqs_ids_ja.size() << " step:" << step << endl;
-
-    //sortSeqs(seqs_ids_ja, seqs_ids_en);
 
     float loss_total = 0;
 
@@ -460,11 +413,7 @@ int main(){
             optimizer.update();
             model.zero_grads();
             model.unchain();
-//exit(0);
-            //((FullLSTM *) model.G("lstm_ja"))->reset_state();
-            //((FullLSTM *) model.G("lstm_en"))->reset_state();
-            //((GRU *) model.G("lstm_ja"))->reset_state();
-            //((GRU *) model.G("lstm_en"))->reset_state();
+
             ((FullLSTM2 *) model.G("lstm_ja"))->reset_state();
             ((FullLSTM2 *) model.G("lstm_en"))->reset_state();
 
@@ -519,10 +468,6 @@ int main(){
 
         model.unchain();
 
-        //((FullLSTM *) model.G("lstm_ja"))->reset_state();
-        //((FullLSTM *) model.G("lstm_en"))->reset_state();
-        //((GRU *) model.G("lstm_ja"))->reset_state();
-        //((GRU *) model.G("lstm_en"))->reset_state();
         ((FullLSTM2 *) model.G("lstm_ja"))->reset_state();
         ((FullLSTM2 *) model.G("lstm_en"))->reset_state();
     }

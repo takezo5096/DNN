@@ -25,50 +25,6 @@ using namespace std;
 
 MallocCounter mallocCounter;
 
-/*
-void write_png(const char *file_name, unsigned char **image, int WIDTH, int HEIGHT)
-{
-    FILE            *fp;
-    png_structp     png_ptr;
-    png_infop       info_ptr;
-
-    fp = fopen(file_name, "wb");                            // まずファイルを開きます
-    png_ptr = png_create_write_struct(                      // png_ptr構造体を確保・初期化します
-            PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-    info_ptr = png_create_info_struct(png_ptr);             // info_ptr構造体を確保・初期化します
-    png_init_io(png_ptr, fp);                               // libpngにfpを知らせます
-    png_set_IHDR(png_ptr, info_ptr, WIDTH, HEIGHT,          // IHDRチャンク情報を設定します
-                 8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
-                 PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
-    png_write_info(png_ptr, info_ptr);                      // PNGファイルのヘッダを書き込みます
-    png_write_image(png_ptr, image);                        // 画像データを書き込みます
-    png_write_end(png_ptr, info_ptr);                       // 残りの情報を書き込みます
-    png_destroy_write_struct(&png_ptr, &info_ptr);          // ２つの構造体のメモリを解放します
-    fclose(fp);                                             // ファイルを閉じます
-    return;
-}
-
-
-void col2png(string png_name, float *col, int width, int height, float scale){
-
-    unsigned char **image = (png_bytepp)malloc(height * sizeof(png_bytep));
-
-    for (int j = 0; j < width; j++)
-        image[j] = (png_bytep)malloc(width * sizeof(png_byte)*3);
-    for (int i = 0; i < height; i++) {
-        for (int j = 0; j < width; j++) {
-            image[i][j*3] = (unsigned char) col[i*width + j*3] * scale;
-            image[i][j*3+1] = (unsigned char) col[i*width + j*3+1] * scale;
-            image[i][j*3+2] = (unsigned char) col[i*width + j*3+2] * scale;
-        }
-    }
-
-    write_png(png_name.c_str(), image, width, height);
-
-    for (int j = 0; j < width; j++) free(image[j]);
-    free(image);
-}
-*/
 
 void asMatrix(PVariable x1, float *X){
     x1->data.memSetHost(X);

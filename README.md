@@ -7,7 +7,7 @@ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../cuMat
 ./test
 ```
 
-# [処理の種類]
+#### [処理の種類]
 * autoencoder: オートエンコーダー
 * cnn: 畳み込みニューラルネットワーク
 * iris: IRISデータセットによる層状パーセプトロン

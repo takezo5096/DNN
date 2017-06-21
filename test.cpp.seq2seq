@@ -30,7 +30,7 @@ void toPVariable(PVariable x1, float *X){
 
 
 
-WordEmbed *load_data(string filename, int vocab_size, bool addEOS, bool addSOS){
+WordEmbed *load_data(string filename, int vocab_size, bool tokenize, bool addEOS){
 
 
     std::ifstream reading_file(filename, std::ios::in);
@@ -48,7 +48,7 @@ WordEmbed *load_data(string filename, int vocab_size, bool addEOS, bool addSOS){
 
     WordEmbed *wd = new WordEmbed(vocab_size);
 
-    wd->addSentences(sequences, false, addEOS, addSOS);
+    wd->addSentences(sequences, tokenize, addEOS);
 
     return wd;
 }
@@ -140,7 +140,6 @@ PVariable attention_hidden_state(PVariable h, PVariable a){
 
     return model.G("attention_linear_tanh")->forward(attention_plus);
 }
-///////////////////////////
 
 
 int get_max_vocab_size(vector<vector<int>> &seqs_ids, int batch_size, int k){
@@ -155,8 +154,6 @@ int get_max_vocab_size(vector<vector<int>> &seqs_ids, int batch_size, int k){
 vector<PVariable> encoder(vector<vector<int>> &seqs_ids_ja, WordEmbed *wd_ja, int batch_size, int vocab_size, int k){
 
     int max_vocab_size_ja = get_max_vocab_size(seqs_ids_ja, batch_size, k);
-    //cout << "max_vocab_size_ja:" << max_vocab_size_ja << endl;
-
 
     vector<PVariable> src_hidden_states;
 
@@ -173,7 +170,6 @@ vector<PVariable> encoder(vector<vector<int>> &seqs_ids_ja, WordEmbed *wd_ja, in
             reverse(word_ids.begin(), word_ids.end());
 
             bool ignore = false;
-            //if (word_ids[j] == wd_ja->PAD_ID) ignore = true;
             wd_ja->toOneHot(vocab_size, data_ja, word_ids[j], batch_idx, ignore);
             batch_idx++;
         }
@@ -308,7 +304,6 @@ PVariable forward_one_step(vector<vector<int>> &seqs_ids_ja, vector<vector<int>>
             wd_en->padding(word_ids, max_vocab_size_en);
 
             bool ignore = false;
-            //if (word_ids[j] == wd_en->PAD_ID) ignore = true;
             wd_en->toOneHot(vocab_size, data_en, word_ids[j], batch_idx, ignore);
             batch_idx++;
         }
@@ -342,11 +337,10 @@ int main(){
     float clip_grad_threshold = 0;
     float learning_rate = 0.001; //ADAM
 
-    int epoch = 100;
+    int epoch = 20;
 
-
-    WordEmbed *wd_ja = load_data("tanaka_corpus_j_10000.txt", vocab_size, false, false);
-    WordEmbed *wd_en = load_data("tanaka_corpus_e_10000.txt", vocab_size, true, false);
+    WordEmbed *wd_ja = load_data("tanaka_corpus_j_10000.txt.train", vocab_size, true, false);
+    WordEmbed *wd_en = load_data("tanaka_corpus_e_10000.txt.train", vocab_size, true, true);
 
     vector<vector<int>> seqs_ids_ja = wd_ja->getSequencesIds();
     vector<vector<int>> seqs_ids_en = wd_en->getSequencesIds();
@@ -471,7 +465,7 @@ int main(){
         ((FullLSTM2 *) model.G("lstm_ja"))->reset_state();
         ((FullLSTM2 *) model.G("lstm_en"))->reset_state();
     }
-
+    
     delete wd_ja;
     delete wd_en;
 

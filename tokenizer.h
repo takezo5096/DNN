@@ -33,7 +33,8 @@ private:
 public:
     Tokenizer(){
         //tagger = MeCab::createTagger("-Owakati");
-        tagger = MeCab::createTagger("-xunknown");
+        //tagger = MeCab::createTagger("-xunknown -d /usr/local/lib/mecab/dic/mecab-ipadic-neologd");
+        tagger = MeCab::createTagger("-d /usr/local/lib/mecab/dic/mecab-ipadic-neologd");
     }
     ~Tokenizer(){
         delete tagger;
@@ -50,12 +51,12 @@ public:
 
         for (; node; node = node->next) {
             string feature(node->feature);
-            if (feature.find("名詞")==0 || feature.find("未知語")==0){
+            //if (feature.find("名詞")==0 || feature.find("未知語")==0){
                 strcpy(buf,node->surface);
                 buf[node->length]='\0';
                 string surface(buf);
                 result.push_back(surface);
-            }
+            //}
         }
         return result;
     }

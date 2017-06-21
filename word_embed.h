@@ -89,9 +89,9 @@ public:
     }
 
 
-    void addSentences(vector<string> seqs, bool tokenize, bool addEOS, bool addSOS){
+    void addSentences(vector<string> seqs, bool tokenize, bool addEOS){
         for (auto s : seqs){
-            add(s, tokenize, addEOS, addSOS);
+            add(s, tokenize, addEOS);
         }
 
         vector<pair<string, int> > pairs(words_count.size());
@@ -129,23 +129,27 @@ public:
 
     }
 
-    void add(string sentence, bool tokenize, bool addEOS, bool addSOS){
+    void add(string sentence, bool tokenize, bool addEOS){
 
         if (sentence == "") return;
 
-        if (addSOS) sentence = "<sos> " + sentence;
-        if (addEOS) sentence += " <eos>";
 
-        vector<string> words;
+        vector<string> words, words_final;
         if (tokenize) words = token.parse(sentence);
         else words = split(sentence, ' ');
 
-        for (auto w : words) {
+        if (addEOS) words.push_back("<eos>");
+
+        for (auto w : words){
+            if (w != "") words_final.push_back(w);
+        }
+
+        for (auto w : words_final) {
             if (words_count.count(w) == 0) words_count[w] = 1;
             else words_count[w] += 1;
         }
 
-        sequences.push_back(words);
+        sequences.push_back(words_final);
     }
 
 

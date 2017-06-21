@@ -48,11 +48,9 @@ complete version (UTF-8)をダウンロード後、DNNディレクトリに解�
 
 norm_tanaka_corpus.pyでexamples.utfの必要な部分だけ取り出し、tanaka_corpus_e.txtとtanaka_corpus_j.txtを作成。
 
-sample_tanaka_corpus.pyで上記で作成したデータからランダムに10000件を抜き出して、別ファイルに保存(tanaka_corpus_e_10000.txt, 
+sample_tanaka_corpus.pyで上記で作成したデータからランダムに10000件を抜き出して、別ファイルに保存(tanaka_corpus_e_10000.txt, tanaka_corpus_j_10000.txt)。これをリネームして訓練用データとする(tanaka_corpus_e_10000.txt.train, tanaka_corpus_j_10000.txt.train)
 
-tanaka_corpus_j_10000.txt)。これをリネームしておく(tanaka_corpus_e_10000.txt.train, tanaka_corpus_j_10000.txt.train)
-
-同様に、もう一度sample_tanaka_corpus.pyを使って、テスト用のデータを作る(tanaka_corpus_e_10000.txt.test, tanaka_corpus_j_10000.txt.test)
+同様に、もう一度sample_tanaka_corpus.pyを使って、評価用のデータを作る(tanaka_corpus_e_10000.txt.test, tanaka_corpus_j_10000.txt.test)
 
 ## 「C++で学ぶディープラーニング」正誤表
 |ページ|節|誤|正|

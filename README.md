@@ -1,10 +1,10 @@
 # DNN
 
 ## 事前作業
-・CUDAのインストール
-・MeCabのインストール
+* CUDAのインストール
+* MeCabのインストール
 
-## コンパイル
+## コンパイル & 実行
 cuMatディレクトリが同列にあることを前提
 ```bash
 cp test.cpp.[処理の種類]　test.cpp

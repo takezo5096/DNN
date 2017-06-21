@@ -46,9 +46,9 @@ http://www.edrdg.org/wiki/index.php/Tanaka_Corpus
 
 complete version (UTF-8)をダウンロード後、DNNディレクトリに解凍。examples.utfができる。
 
-norm_tanaka_corpus.pyで必要な部分だけ取り出し、tanaka_corpus_e.txtとtanaka_corpus_j.txtを作成。
+norm_tanaka_corpus.pyでexamples.utfの必要な部分だけ取り出し、tanaka_corpus_e.txtとtanaka_corpus_j.txtを作成。
 
-sample_tanaka_corpus.pyで作成したデータからランダムに10000件を抜き出して、別ファイルに保存(tanaka_corpus_e_10000.txt, 
+sample_tanaka_corpus.pyで上記で作成したデータからランダムに10000件を抜き出して、別ファイルに保存(tanaka_corpus_e_10000.txt, 
 
 tanaka_corpus_j_10000.txt)。これをリネームしておく(tanaka_corpus_e_10000.txt.train, tanaka_corpus_j_10000.txt.train)
 

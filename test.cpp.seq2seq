@@ -337,7 +337,7 @@ int main(){
     float clip_grad_threshold = 0;
     float learning_rate = 0.001; //ADAM
 
-    int epoch = 20;
+    int epoch = 100;
 
     WordEmbed *wd_ja = load_data("tanaka_corpus_j_10000.txt.train", vocab_size, true, false);
     WordEmbed *wd_en = load_data("tanaka_corpus_e_10000.txt.train", vocab_size, true, true);

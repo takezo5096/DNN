@@ -52,7 +52,13 @@ sample_tanaka_corpus.pyで上記で作成したデータからランダムに100
 
 同様に、もう一度sample_tanaka_corpus.pyを使って、評価用のデータを作る(tanaka_corpus_e_10000.txt.test, tanaka_corpus_j_10000.txt.test)
 
+    
 ## 「C++で学ぶディープラーニング」正誤表
 |ページ|節|誤|正|
 |------|-----|----|-------|
+|233P&nbsp;&nbsp;|9.5.2 コード9.12 9,10行目|WordEmbed *wd_ja = load_data("tanaka_corpus_j_10000.txt.train", vocab_size, false, false);
+WordEmbed *wd_en = load_data("tanaka_corpus_e_10000.txt.train", vocab_size, false, true);
+|WordEmbed *wd_ja = load_data("tanaka_corpus_j_10000.txt.train", vocab_size, true, false);
+WordEmbed *wd_en = load_data("tanaka_corpus_e_10000.txt.train", vocab_size, true, true);
+|
 |244P&nbsp;&nbsp;|9.5.2|ちなみに、本節で説明した構造のニューラルネットワークを学習すると、50エポックでおおよそ誤差0.002前後に収束し、パープレキシティは1に近づきます。|100エポックで誤差0.002前後に収束します。|
